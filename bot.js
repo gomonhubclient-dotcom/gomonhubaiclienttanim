@@ -565,6 +565,15 @@ function queueMessageForSender(senderPhone, fn) {
     return nextPromise;
 }
 
+const sentMessagesStore = new Map();
+function storeSentMessage(id, message) {
+    if (sentMessagesStore.size > 500) {
+        const firstKey = sentMessagesStore.keys().next().value;
+        sentMessagesStore.delete(firstKey);
+    }
+    sentMessagesStore.set(id, message);
+}
+
 async function startWhatsAppBot() {
     const sessionDir = path.join(__dirname, 'auth_session');
     restoreSessionFromEnv();
@@ -584,7 +593,13 @@ async function startWhatsAppBot() {
         printQRInTerminal: false,
         browser: Browsers.ubuntu('Chrome'),
         syncFullHistory: false,
-        markOnlineOnConnect: true
+        markOnlineOnConnect: true,
+        getMessage: async (key) => {
+            if (key && key.id && sentMessagesStore.has(key.id)) {
+                return sentMessagesStore.get(key.id);
+            }
+            return { conversation: '' };
+        }
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -678,13 +693,22 @@ async function startWhatsAppBot() {
             // Instantly notify user with typing presence so they know bot is online & responding
             sock.sendPresenceUpdate('composing', senderJid).catch(() => {});
             const aiReply = await generateAiSupportReply(text, senderPhone, imageBase64, imageMime);
-            await sock.sendMessage(senderJid, { text: aiReply });
+            const sent = await sock.sendMessage(senderJid, { text: aiReply }, { quoted: msg });
+            if (sent?.key?.id && sent?.message) {
+                storeSentMessage(sent.key.id, sent.message);
+            }
             console.log(`🤖 [AI SUPPORT REPLIED] To: ${senderPhone}`);
         } catch (aiErr) {
             console.error(`❌ [AI SUPPORT ERROR] ${aiErr.message}`);
-            await sock.sendMessage(senderJid, {
-                text: `স্বাগতম GOMON HUB-এ।\nআপনার স্কিলই আপনার পরিচয়। সেরাদের সাথে লড়াই করে তৈরি করুন নিজের অবস্থান。\n\nOur tournament website 🖇️ https://rb.gy/feuqry`
-            });
+            try {
+                const fallbackText = `স্বাগতম GOMON HUB-এ।\nআপনার স্কিলই আপনার পরিচয়। সেরাদের সাথে লড়াই করে তৈরি করুন নিজের অবস্থান。\n\nOur tournament website 🖇️ https://rb.gy/feuqry`;
+                const sentErr = await sock.sendMessage(senderJid, { text: fallbackText }, { quoted: msg });
+                if (sentErr?.key?.id && sentErr?.message) {
+                    storeSentMessage(sentErr.key.id, sentErr.message);
+                }
+            } catch (sendErr) {
+                console.error(`❌ [SEND ERROR] ${sendErr.message}`);
+            }
         } finally {
             sock.sendPresenceUpdate('paused', senderJid).catch(() => {});
         }
@@ -817,6 +841,7 @@ const server = http.createServer(async (req, res) => {
       justify-content: center;
       padding: 20px;
     }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .card {
       background: rgba(15, 23, 42, 0.9);
       border: 1px solid rgba(255, 255, 255, 0.1);
