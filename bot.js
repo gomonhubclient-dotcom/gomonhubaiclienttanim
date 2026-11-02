@@ -108,6 +108,10 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
 
     if (mem) mem.greeted = true;
 
+    if (isAngry || isScamAccusation) {
+        if (mem) mem.history = [];
+    }
+
     if (asksPayment) {
         return `PAYMENT METHOD- SEND MONEY ONLY\n\n` +
             `বিকাশ- 01611657757\n` +
@@ -327,7 +331,7 @@ function getGeminiApiKeyPool() {
     if (Array.isArray(raw)) {
         rawKeys = raw;
     } else if (typeof raw === 'string') {
-        rawKeys = raw.split(',');
+        rawKeys = raw.split(/[\r\n,;]+/).map(k => k.trim()).filter(Boolean);
     }
 
     return Array.from(new Set(rawKeys.map(k => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)));
@@ -472,46 +476,35 @@ ${JSON.stringify(knowledge, null, 2)}`;
 
     let cleanReply = null;
 
-    // Failover loop across candidate API keys
+    // Instant failover loop across candidate API keys
     for (let i = 0; i < candidateKeys.length; i++) {
         const activeKey = candidateKeys[i];
         const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
 
         try {
-            // 1. Try Primary Model (10s realistic timeout)
-            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 10000);
-            if (cleanReply) break;
-        } catch (primaryErr) {
-            if (primaryErr.statusCode === 429) {
-                console.warn(`⚠️ [GEMINI 429 RATE LIMIT on Key ${maskedKey}] Putting key on 60s cooldown. Auto-failing over to next key in pool...`);
-                keyCooldowns[activeKey] = Date.now() + 60000;
-                continue;
+            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 8000);
+            if (cleanReply) {
+                console.log(`✅ [GEMINI AI REPLIED with Key ${maskedKey}]`);
+                break;
             }
+        } catch (err) {
+            console.warn(`⚠️ [GEMINI ERROR Key ${maskedKey}] ${err.message}. Auto-switching to next key immediately...`);
+            if (err.statusCode === 429 || /quota|exceeded|resource/i.test(err.message)) {
+                keyCooldowns[activeKey] = Date.now() + 10000;
+            }
+            // Auto-switch to next key immediately
+            continue;
+        }
+    }
 
-            console.warn(`⚠️ [GEMINI PRIMARY ERROR (${primaryModel}) Key ${maskedKey}] ${primaryErr.message}. Trying secondary model...`);
+    // If primary model failed across all keys, attempt secondary model
+    if (!cleanReply && candidateKeys.length > 0) {
+        for (let i = 0; i < candidateKeys.length; i++) {
+            const activeKey = candidateKeys[i];
             try {
-                // 2. Try Secondary Model (8s timeout)
                 cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 8000);
                 if (cleanReply) break;
-            } catch (secErr) {
-                if (secErr.statusCode === 429) {
-                    console.warn(`⚠️ [GEMINI 429 RATE LIMIT (Sec) on Key ${maskedKey}] Putting key on 60s cooldown. Auto-failing over to next key...`);
-                    keyCooldowns[activeKey] = Date.now() + 60000;
-                    continue;
-                }
-
-                console.warn(`⚠️ [GEMINI SECONDARY ERROR (${secondaryModel}) Key ${maskedKey}] ${secErr.message}. Trying tertiary model...`);
-                try {
-                    // 3. Try Tertiary Model (6s timeout)
-                    cleanReply = await requestGeminiApi(tertiaryModel, data, activeKey, 6000);
-                    if (cleanReply) break;
-                } catch (tertErr) {
-                    if (tertErr.statusCode === 429) {
-                        keyCooldowns[activeKey] = Date.now() + 60000;
-                    }
-                    console.warn(`⚠️ [GEMINI TERTIARY ERROR (${tertiaryModel}) Key ${maskedKey}] ${tertErr.message}.`);
-                }
-            }
+            } catch (_) {}
         }
     }
 
@@ -526,8 +519,6 @@ ${JSON.stringify(knowledge, null, 2)}`;
     }
 
     const fallback = getSmartFallbackReply(userMessage, !!imageBase64, senderPhone);
-    mem.history.push({ role: 'user', parts: [{ text: userMessage || '[ছবি]' }] });
-    mem.history.push({ role: 'model', parts: [{ text: fallback }] });
     mem.greeted = true;
     return fallback;
 }
