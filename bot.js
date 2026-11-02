@@ -414,9 +414,9 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
     } catch (_) {}
 
     const candidateKeys = getOrderedCandidateKeys();
-    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-2.5-flash';
-    const secondaryModel = (primaryModel === 'gemini-2.5-flash') ? 'gemini-flash-latest' : 'gemini-2.5-flash';
-    const tertiaryModel = 'gemini-2.5-flash-lite';
+    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-3.5-flash';
+    const secondaryModel = (primaryModel === 'gemini-3.5-flash') ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash';
+    const tertiaryModel = 'gemini-3.5-flash-lite';
 
     const mem = getChatMemory(senderPhone);
 
@@ -908,7 +908,7 @@ const server = http.createServer(async (req, res) => {
             tests: []
         };
 
-        const testModels = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
+        const testModels = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
         for (let i = 0; i < pool.length; i++) {
             const k = pool[i];
             const mask = k.length > 8 ? `${k.slice(0, 4)}...${k.slice(-4)}` : 'KEY';
