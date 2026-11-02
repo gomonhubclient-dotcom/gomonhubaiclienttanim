@@ -256,16 +256,17 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
     return `জি ভাই বলেন, কী অবস্থা?`;
 }
 
-function requestGeminiApi(modelName, data, apiKey, timeoutMs = 5000) {
+function requestGeminiApi(modelName, data, apiKey, timeoutMs = 12000) {
     return new Promise((resolve, reject) => {
+        const cleanKey = (apiKey || '').trim();
         const req = https.request({
             hostname: 'generativelanguage.googleapis.com',
-            path: `/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+            path: `/v1beta/models/${modelName}:generateContent`,
             method: 'POST',
             timeout: timeoutMs,
             headers: {
                 'Content-Type': 'application/json',
-                'x-goog-api-key': apiKey,
+                'X-goog-api-key': cleanKey,
                 'Content-Length': Buffer.byteLength(data)
             }
         }, (res) => {
@@ -280,8 +281,8 @@ function requestGeminiApi(modelName, data, apiKey, timeoutMs = 5000) {
                     } catch (_) {}
                     return reject(new Error('Invalid JSON from Gemini'));
                 } else {
-                    console.warn(`⚠️ [GEMINI API ERROR HTTP ${res.statusCode} (${modelName})] ${body.slice(0, 180)}`);
-                    const apiErr = new Error(`HTTP ${res.statusCode}: ${body.slice(0, 140)}`);
+                    console.warn(`⚠️ [GEMINI API ERROR HTTP ${res.statusCode} (${modelName})] ${body.slice(0, 300)}`);
+                    const apiErr = new Error(`HTTP ${res.statusCode}: ${body.slice(0, 200)}`);
                     apiErr.statusCode = res.statusCode;
                     return reject(apiErr);
                 }
@@ -413,9 +414,9 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
     } catch (_) {}
 
     const candidateKeys = getOrderedCandidateKeys();
-    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-1.5-flash';
-    const secondaryModel = (primaryModel === 'gemini-1.5-flash') ? 'gemini-2.0-flash' : 'gemini-1.5-flash';
-    const tertiaryModel = 'gemini-1.5-flash-8b';
+    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-flash-latest';
+    const secondaryModel = (primaryModel === 'gemini-flash-latest') ? 'gemini-1.5-flash' : 'gemini-flash-latest';
+    const tertiaryModel = 'gemini-2.0-flash';
 
     const mem = getChatMemory(senderPhone);
 
@@ -495,12 +496,10 @@ ${JSON.stringify(knowledge, null, 2)}`;
             parts: [{ text: systemPrompt }]
         },
         contents,
-        safetySettings: [
-            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
-        ]
+        generationConfig: {
+            maxOutputTokens: 300,
+            temperature: 0.7
+        }
     });
 
     let cleanReply = null;
@@ -895,6 +894,38 @@ const server = http.createServer(async (req, res) => {
             sessionKey: isConnected ? sessionKey : null,
             botPhone: config.bot_phone_number
         }));
+        return;
+    }
+
+    // API: Live Gemini Diagnostic Endpoint
+    if (parsedUrl.pathname === '/api/test-gemini' && req.method === 'GET') {
+        const pool = getGeminiApiKeyPool();
+        const testPayload = JSON.stringify({
+            contents: [{ parts: [{ text: 'Hello, respond with: GEMINI_IS_WORKING' }] }]
+        });
+        const results = {
+            totalKeysConfigured: pool.length,
+            tests: []
+        };
+
+        const testModels = ['gemini-flash-latest', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+        for (let i = 0; i < pool.length; i++) {
+            const k = pool[i];
+            const mask = k.length > 8 ? `${k.slice(0, 4)}...${k.slice(-4)}` : 'KEY';
+            const keyReport = { key: mask, models: {} };
+            for (const m of testModels) {
+                try {
+                    const reply = await requestGeminiApi(m, testPayload, k, 8000);
+                    keyReport.models[m] = { success: true, reply };
+                } catch (e) {
+                    keyReport.models[m] = { success: false, error: e.message };
+                }
+            }
+            results.tests.push(keyReport);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(results, null, 2));
         return;
     }
 
