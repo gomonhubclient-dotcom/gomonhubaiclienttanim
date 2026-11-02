@@ -10,7 +10,7 @@ const https = require('https');
 // Load configuration
 const configPath = path.join(__dirname, 'config.json');
 let config = {
-    bot_phone_number: "8801353262318",
+    bot_phone_number: "8801611657757",
     social_links: {
         youtube: "https://youtube.com/@gomonhub",
         facebook: "https://www.facebook.com/gomonhub/",
