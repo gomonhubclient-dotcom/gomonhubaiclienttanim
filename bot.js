@@ -967,7 +967,11 @@ const server = http.createServer(async (req, res) => {
       <p class="sub">আপনার <b>${config.bot_phone_number}</b> নম্বরের ফোন দিয়ে নিচের QR কোডটি স্ক্যান করুন:</p>
 
       <div class="qr-container">
-        <img id="qrImage" src="" alt="WhatsApp QR Code">
+        <div id="qrLoading" style="width: 240px; height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #475569; font-size: 0.85rem; font-weight: 600; text-align: center; padding: 16px;">
+          <div style="width: 28px; height: 28px; border: 3px solid #cbd5e1; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+          QR কোড তৈরি হচ্ছে...<br><span style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">কয়েক সেকেন্ড অপেক্ষা করুন</span>
+        </div>
+        <img id="qrImage" src="" alt="WhatsApp QR Code" style="display: none; width: 240px; height: 240px;">
       </div>
 
       <div class="instructions">
@@ -1007,8 +1011,14 @@ const server = http.createServer(async (req, res) => {
         } else {
           document.getElementById('viewScan').style.display = 'block';
           document.getElementById('viewConnected').style.display = 'none';
-          if (data.qrImage) {
-            document.getElementById('qrImage').src = data.qrImage;
+          if (data.hasQr && data.qrImage) {
+            const qrImg = document.getElementById('qrImage');
+            qrImg.src = data.qrImage;
+            qrImg.style.display = 'block';
+            document.getElementById('qrLoading').style.display = 'none';
+          } else {
+            document.getElementById('qrImage').style.display = 'none';
+            document.getElementById('qrLoading').style.display = 'flex';
           }
           if (data.pairingCode) {
             document.getElementById('pairingCodeDisplay').innerText = data.pairingCode;
@@ -1071,12 +1081,12 @@ const server = http.createServer(async (req, res) => {
           btn.innerText = 'নতুন কোড পান 🔄';
           btn.disabled = false;
         } else {
-          alert(data.message || 'Error');
+          alert('বট সার্ভার সংযোগ তৈরি করছে। অনুগ্রহ করে ৫-১০ সেকেন্ড পর আবার চাপ দিন। (' + (data.message || 'Connecting') + ')');
           btn.innerText = 'Pairing Code তৈরি করুন 🔑';
           btn.disabled = false;
         }
       } catch (err) {
-        alert('এরর: ' + err.message);
+        alert('সার্ভার রিকানেক্ট হচ্ছে, দয়া করে একটু অপেক্ষা করে আবার চেষ্টা করুন।');
         btn.innerText = 'Pairing Code তৈরি করুন 🔑';
         btn.disabled = false;
       }
