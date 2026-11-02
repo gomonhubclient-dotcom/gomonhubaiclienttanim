@@ -52,7 +52,13 @@ function getSessionKeyString() {
     return null;
 }
 
+let sessionInvalidated = false;
+
 function restoreSessionFromEnv() {
+    if (sessionInvalidated) {
+        console.warn('⚠️ [SESSION RESTORE SKIPPED] Session was invalidated/logged out. Generating fresh QR code.');
+        return;
+    }
     const sessionDir = path.join(__dirname, 'auth_session');
     if (!fs.existsSync(sessionDir)) {
         fs.mkdirSync(sessionDir, { recursive: true });
@@ -620,9 +626,22 @@ async function startWhatsAppBot() {
 
         if (connection === 'close') {
             isConnected = false;
-            const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-            console.log(`\n⚠️ Connection closed: ${lastDisconnect?.error?.message || 'Unknown'}. Reconnecting: ${shouldReconnect}`);
-            if (shouldReconnect) {
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const isLoggedOut = (statusCode === DisconnectReason.loggedOut);
+            console.log(`\n⚠️ Connection closed: ${lastDisconnect?.error?.message || 'Unknown'}. Logged out: ${isLoggedOut}`);
+
+            if (isLoggedOut) {
+                console.log('🗑️ [LOGGED OUT] Session was logged out. Clearing auth_session and restarting for fresh QR code...');
+                sessionInvalidated = true;
+                const sessionDir = path.join(__dirname, 'auth_session');
+                if (fs.existsSync(sessionDir)) {
+                    try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (_) {}
+                }
+                currentQr = null;
+                currentQrDataUrl = null;
+                currentPairingCode = null;
+                setTimeout(startWhatsAppBot, 2000);
+            } else {
                 setTimeout(startWhatsAppBot, 3000);
             }
         } else if (connection === 'open') {
@@ -882,6 +901,7 @@ const server = http.createServer(async (req, res) => {
     // API: Logout / Reset Session (Change Number)
     if (parsedUrl.pathname === '/api/bot-logout' && req.method === 'POST') {
         try {
+            sessionInvalidated = true;
             console.log('🔄 [LOGOUT REQUESTED] Clearing WhatsApp session for new number link...');
             if (sock) {
                 try { await sock.logout(); } catch (_) { try { sock.end(); } catch (__) {} }
@@ -1087,8 +1107,13 @@ const server = http.createServer(async (req, res) => {
       <h1>WhatsApp কানেক্ট করুন</h1>
       <p class="sub">যেকোনো WhatsApp নম্বর থেকে নিচের QR কোডটি স্ক্যান করুন অথবা নম্বর দিয়ে পেয়ার করুন:</p>
 
-      <div class="qr-container">
-        <img id="qrImage" src="" alt="WhatsApp QR Code">
+      <div class="qr-container" style="position: relative; min-height: 260px; display: flex; align-items: center; justify-content: center; background: #0b1120; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08); padding: 12px;">
+        <div id="qrLoading" style="color: #94a3b8; font-size: 0.9rem; text-align: center; padding: 20px;">
+          <div style="font-size: 2rem; margin-bottom: 8px;">⏳</div>
+          <b>QR কোড তৈরি হচ্ছে...</b><br>
+          <span style="font-size: 0.8rem; color: #64748b;">কয়েক সেকেন্ড অপেক্ষা করুন</span>
+        </div>
+        <img id="qrImage" src="" alt="WhatsApp QR Code" style="display: none; width: 100%; max-width: 260px; height: auto; border-radius: 12px; margin: auto;">
       </div>
 
       <div class="instructions">
@@ -1130,7 +1155,11 @@ const server = http.createServer(async (req, res) => {
           document.getElementById('viewScan').style.display = 'block';
           document.getElementById('viewConnected').style.display = 'none';
           if (data.qrImage) {
-            document.getElementById('qrImage').src = data.qrImage;
+            const qrImg = document.getElementById('qrImage');
+            qrImg.src = data.qrImage;
+            qrImg.style.display = 'block';
+            const qrLdr = document.getElementById('qrLoading');
+            if (qrLdr) qrLdr.style.display = 'none';
           }
           if (data.pairingCode) {
             document.getElementById('pairingCodeDisplay').innerText = data.pairingCode;
