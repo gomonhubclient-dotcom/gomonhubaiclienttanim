@@ -414,9 +414,9 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
     } catch (_) {}
 
     const candidateKeys = getOrderedCandidateKeys();
-    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-flash-latest';
-    const secondaryModel = (primaryModel === 'gemini-flash-latest') ? 'gemini-1.5-flash' : 'gemini-flash-latest';
-    const tertiaryModel = 'gemini-2.0-flash';
+    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-2.5-flash';
+    const secondaryModel = (primaryModel === 'gemini-2.5-flash') ? 'gemini-flash-latest' : 'gemini-2.5-flash';
+    const tertiaryModel = 'gemini-2.5-flash-lite';
 
     const mem = getChatMemory(senderPhone);
 
@@ -510,8 +510,8 @@ ${JSON.stringify(knowledge, null, 2)}`;
         const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
 
         try {
-            // 1. Try Primary Model (10s realistic timeout)
-            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 10000);
+            // 1. Try Primary Model (15s timeout)
+            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 15000);
             if (cleanReply) break;
         } catch (primaryErr) {
             if (primaryErr.statusCode === 429) {
@@ -522,8 +522,8 @@ ${JSON.stringify(knowledge, null, 2)}`;
 
             console.warn(`⚠️ [GEMINI PRIMARY ERROR (${primaryModel}) Key ${maskedKey}] ${primaryErr.message}. Trying secondary model...`);
             try {
-                // 2. Try Secondary Model (8s timeout)
-                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 8000);
+                // 2. Try Secondary Model (12s timeout)
+                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 12000);
                 if (cleanReply) break;
             } catch (secErr) {
                 if (secErr.statusCode === 429) {
@@ -534,8 +534,8 @@ ${JSON.stringify(knowledge, null, 2)}`;
 
                 console.warn(`⚠️ [GEMINI SECONDARY ERROR (${secondaryModel}) Key ${maskedKey}] ${secErr.message}. Trying tertiary model...`);
                 try {
-                    // 3. Try Tertiary Model (6s timeout)
-                    cleanReply = await requestGeminiApi(tertiaryModel, data, activeKey, 6000);
+                    // 3. Try Tertiary Model (10s timeout)
+                    cleanReply = await requestGeminiApi(tertiaryModel, data, activeKey, 10000);
                     if (cleanReply) break;
                 } catch (tertErr) {
                     if (tertErr.statusCode === 429) {
@@ -908,14 +908,14 @@ const server = http.createServer(async (req, res) => {
             tests: []
         };
 
-        const testModels = ['gemini-flash-latest', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+        const testModels = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
         for (let i = 0; i < pool.length; i++) {
             const k = pool[i];
             const mask = k.length > 8 ? `${k.slice(0, 4)}...${k.slice(-4)}` : 'KEY';
             const keyReport = { key: mask, models: {} };
             for (const m of testModels) {
                 try {
-                    const reply = await requestGeminiApi(m, testPayload, k, 8000);
+                    const reply = await requestGeminiApi(m, testPayload, k, 15000);
                     keyReport.models[m] = { success: true, reply };
                 } catch (e) {
                     keyReport.models[m] = { success: false, error: e.message };
