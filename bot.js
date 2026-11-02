@@ -435,7 +435,7 @@ ABSOLUTE HUMAN RULES (NEVER BREAK THESE):
 1. NEVER speak like an AI, a chatbot, or a corporate robot!
 2. NEVER say "GOMON HUB সাপোর্ট টিমে আপনাকে স্বাগতম", "কীভাবে সাহায্য করতে পারি?", "আমাদের সাপোর্ট টিমে নক করুন" (YOU ARE THE SUPPORT ADMIN!).
 3. NEVER repeat Salam in an active ongoing chat! If you already exchanged Salam or if it's mid-conversation, DO NOT say Salam again! Only say "ওয়ালাইকুম আসসালাম" if the user explicitly says Salam in this current message.
-4. Keep replies short, natural, friendly, and straight to the point (1 to 2 lines maximum) just like a real person typing on WhatsApp.
+4. Keep replies short, natural, friendly, and straight to the point (1 to 2 lines maximum) just like a real person typing on WhatsApp. Always finish your sentence completely and naturally; never cut off mid-sentence.
 5. Answer casual remarks & identity naturally:
    - "kmn aso" -> "আলহামদুলিল্লাহ ভাই ভালো, আপনার কী খবর?"
    - "ki koro" -> "এই তো ভাই সাপোর্ট চ্যাটে আছি। কোনো হেল্প লাগবে?"
@@ -497,7 +497,7 @@ ${JSON.stringify(knowledge, null, 2)}`;
         },
         contents,
         generationConfig: {
-            maxOutputTokens: 300,
+            maxOutputTokens: 1000,
             temperature: 0.7
         }
     });
@@ -572,8 +572,12 @@ function queueMessageForSender(senderPhone, fn) {
     if (!senderQueues[senderPhone]) {
         senderQueues[senderPhone] = Promise.resolve();
     }
+    const withTimeout = () => Promise.race([
+        fn(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Handler timed out after 25s')), 25000))
+    ]);
     const nextPromise = senderQueues[senderPhone]
-        .then(() => fn())
+        .then(() => withTimeout())
         .catch(err => {
             console.error(`❌ [QUEUE ERROR for ${senderPhone}]:`, err.message);
         });
@@ -679,6 +683,8 @@ async function startWhatsAppBot() {
 
     async function processSingleMessage(msg) {
         if (!msg || !msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return;
+        // Strictly ignore all group messages (@g.us) to prevent session corruption and spam
+        if ((msg.key.remoteJid || '').endsWith('@g.us')) return;
 
         const senderJid = msg.key.remoteJid;
         const senderPhone = senderJid.replace(/@.*$/, '');
@@ -799,6 +805,8 @@ async function startWhatsAppBot() {
         if (!messages || messages.length === 0) return;
         for (const msg of messages) {
             if (!msg || !msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') continue;
+            // Ignore group messages at the root so they never hit session ciphers
+            if ((msg.key.remoteJid || '').endsWith('@g.us')) continue;
             const senderPhone = (msg.key.remoteJid || '').replace(/@.*$/, '');
             queueMessageForSender(senderPhone, () => processSingleMessage(msg));
         }
