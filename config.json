@@ -1,0 +1,17 @@
+{
+  "bot_phone_number": "8801349966049",
+  "backend_webhook_url": "http://127.0.0.1:8000/api/auth/whatsapp/confirm",
+  "social_links": {
+    "tiktok": "https://www.tiktok.com/@gomon_hub",
+    "facebook": "https://www.facebook.com/gomonhub",
+    "instagram": "https://www.instagram.com/gomon_gamer",
+    "threads": "https://www.threads.net/@gomon_hub",
+    "youtube": "https://www.youtube.com/@gomonhub",
+    "youtube_2nd": "https://www.youtube.com/@mrgomonhub"
+  },
+  "messages": {
+    "success_verified": "✅ *ভেরিফিকেশন সফল হয়েছে!*\n\n『 GOMON ARMY 』অফিসিয়াল সোশ্যাল লিংক:\n\n• TikTok: https://www.tiktok.com/@gomon_hub\n• Facebook: https://www.facebook.com/gomonhub\n• Instagram: https://www.instagram.com/gomon_gamer\n• Threads: https://www.threads.net/@gomon_hub\n• YouTube: https://www.youtube.com/@gomonhub\n• 2nd Channel: https://www.youtube.com/@mrgomonhub"
+  },
+  "gemini_api_key": "",
+  "ai_model": "gemini-1.5-flash"
+}
