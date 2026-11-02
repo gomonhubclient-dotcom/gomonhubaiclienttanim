@@ -1,0 +1,13 @@
+{
+  "bot_phone_number": "8801353262318",
+  "social_links": {
+    "tiktok": "https://www.tiktok.com/@gomon_hub",
+    "facebook": "https://www.facebook.com/gomonhub",
+    "instagram": "https://www.instagram.com/gomon_gamer",
+    "threads": "https://www.threads.net/@gomon_hub",
+    "youtube": "https://www.youtube.com/@gomonhub",
+    "youtube_2nd": "https://www.youtube.com/@mrgomonhub"
+  },
+  "gemini_api_key": "",
+  "ai_model": "gemini-1.5-flash"
+}
