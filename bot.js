@@ -235,9 +235,10 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
 
 function requestGeminiApi(modelName, data, apiKey, timeoutMs = 5000) {
     return new Promise((resolve, reject) => {
+        const cleanModel = (modelName || 'gemini-3.0-flash').replace(/^models\//, '');
         const req = https.request({
             hostname: 'generativelanguage.googleapis.com',
-            path: `/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+            path: `/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`,
             method: 'POST',
             timeout: timeoutMs,
             headers: {
@@ -390,9 +391,9 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
     } catch (_) {}
 
     const candidateKeys = getOrderedCandidateKeys();
-    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-1.5-flash';
-    const secondaryModel = (primaryModel === 'gemini-1.5-flash') ? 'gemini-2.0-flash' : 'gemini-1.5-flash';
-    const tertiaryModel = 'gemini-1.5-flash-8b';
+    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-3.0-flash';
+    const secondaryModel = (primaryModel === 'gemini-3.0-flash') ? 'gemini-2.5-flash' : 'gemini-3.0-flash';
+    const tertiaryModel = 'gemini-3.0-pro';
 
     const mem = getChatMemory(senderPhone);
 
