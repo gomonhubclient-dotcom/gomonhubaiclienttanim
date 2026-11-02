@@ -1,7 +1,7 @@
 {
-  "name": "gomonhub-whatsapp-bot",
+  "name": "mex-tanim-esports-bot",
   "version": "1.0.0",
-  "description": "WhatsApp AI Customer Support & Auto-Reply Bot for GOMONHUB Tournament",
+  "description": "WhatsApp AI Customer Support & Auto-Reply Bot for Mex Tanim Esports",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"

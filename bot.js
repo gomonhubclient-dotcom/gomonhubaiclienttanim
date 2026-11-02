@@ -89,111 +89,90 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
     const asksFb = /(?:facebook|fb page|fb|ফেসবুক)/i.test(raw);
     const asksYt = /(?:youtube|yt channel|yt|ইউটিউব|ইউটিউবের)/i.test(raw);
     const asksTiktok = /(?:tiktok|টিকটক)/i.test(raw);
-    const asksIg = /(?:instagram|insta|ig|ইনস্টা|ইন্সটা)/i.test(raw);
-    const asksThreads = /(?:threads|থ্রেডস)/i.test(raw);
+    const asksTelegram = /(?:telegram|টেলিগ্রাম|tg)/i.test(raw);
+    const asksDiscord = /(?:discord|ডিসকর্ড|dc)/i.test(raw);
+    const asksWaChannel = /(?:whatsapp channel|হোয়াটসঅ্যাপ চ্যানেল|wa channel|চ্যানেল)/i.test(raw);
 
-    const platformMentionsCount = [asksFb, asksYt, asksTiktok, asksIg, asksThreads].filter(Boolean).length;
+    const platformMentionsCount = [asksFb, asksYt, asksTiktok, asksTelegram, asksDiscord, asksWaChannel].filter(Boolean).length;
     const asksAllSocial = /(?:sob|shob|সব|all).*(?:platform|link|লিংক|প্ল্যাটফর্ম|সোশ্যাল|social|media|গূলা|গুলা|গুলো)|(?:social|সোশ্যাল).*(?:link|লিংক)|(?:aksathe|একসাথে).*(?:link|লিংক|দিতে|দেও|দাও|problem)|(?:link|লিংক).*(?:aksathe|একসাথে)|(?:platform|প্ল্যাটফর্ম)/i.test(raw) || (platformMentionsCount >= 2);
     const isAngry = /(?:bainchod|mc|bc|madarchod|khankir|chutiya|বাইনচোদ|খানকির|চুদি|শালা|হারামি)/i.test(raw);
     const isScamAccusation = /(?:scam|scammer|স্ক্যাম|স্ক্যামার|fraud|প্রতারক|ভুয়া|ভুয়া|fake|চিটার|চোর|fack|baje org|org valo na|valo na|trust|bisshas|বিশ্বাস)/i.test(raw);
 
-    const asksAccount = /(?:account|একাউন্ট|অ্যাকাউন্ট|খুলব কীভাবে|আইডি খুলব|register|সাইন আপ)/i.test(raw);
-    const asksDeposit = /(?:deposit|ডিপোজিট|টাকা অ্যাড|ব্যালেন্স অ্যাড|টাকা ভরব|add money)/i.test(raw);
-    const asksApp = /(?:app|অ্যাপ|apk|ইনস্টল|ইন্সটল)/i.test(raw);
-    const asksLink = /(?:website|ওয়েবসাইট|ওয়েবসাইট|web link|সাইট লিংক|সাইট কোথায়|সাইট খুঁজে|কোথায় পাব)/i.test(raw) || (raw.includes('link') && !asksAllSocial && !asksFb && !asksYt && !asksTiktok && !asksIg && !asksThreads);
-    const asksJoin = /(?:kivabe khelbo|কীভাবে খেলব|খেলব কীভাবে|খেলব কেমনে|join|কাস্টম|ম্যাচ কীভাবে|নিবন্ধন)/i.test(raw);
-    const asksRoomId = /(?:room id|রুম আইডি|পাসওয়ার্ড|password|id pass|কখন পাব|ম্যাচ কখন|শুরু কখন)/i.test(raw);
-    const asksFee = /(?:কত টাকা|ফি কত|এন্ট্রি ফি|entry fee|match fee|কতো টাকার ম্যাচ|টাকা লাগবে)/i.test(raw);
-    const asksWithdraw = /(?:withdraw|উইথড্র|টাকা তুলব|ক্যাশআউট|উইথড্র কীভাবে|bkash|nagad|বিকাশ|নগদ)/i.test(raw);
-    const asksRules = /(?:rules|নিয়ম|চিট|ব্যান নীতি)/i.test(raw);
+    const asksPayment = /(?:payment|পেমেন্ট|টাকা পাঠাব|টাকা দেওয়ার|bkash|nagad|rocket|বিকাশ|নগদ|রকেট|slot|স্লট|স্লট কীভাবে|টাকা পাঠাব কীভাবে|send money|টাকা কীভাবে দিব|টাকা দিব)/i.test(raw);
     const isThanks = /(?:ধন্যবাদ|thanks|thx|tnx|shukriya|শুকরিয়া)/i.test(raw);
     const isHowAreYou = /(?:কেমন আছেন|kemon achen|bhalo achen|ভালো আছেন|kmn aso|kemon aso)/i.test(raw);
     const isDoing = /(?:ki koro|কী করো|কি করো|কি কর|ki korso)/i.test(raw);
     const isSure = /(?:sure|সিওর|শিওর)/i.test(raw);
-    const asksWho = /(?:tmi k|tumi ke|apni ke|apni k|তুমি কে|আপনি কে|তমি ক|tmr porichoy|porichoy ki|পরিচয় কি|কে তুমি|ke tmi|ke tumi|কে আপনি|ke apni)/i.test(raw);
+    const asksWho = /(?:tmi k|tumi ke|apni ke|apni k|তুমি কে|আপনি কে|তমি ক|tmr porichoy|porichoy ki|পরিচয় কি|কে তুমি|ke tmi|ke tumi|কে আপনি|ke apni|tanim|তানিম)/i.test(raw);
     const isHalaBanter = /(?:hur hla|hala|হালা|হালার|ভাগ|kire|কি রে)/i.test(raw);
 
     if (mem) mem.greeted = true;
 
+    if (asksPayment) {
+        return `PAYMENT METHOD- SEND MONEY ONLY\n\n` +
+            `বিকাশ- 01611657757\n` +
+            `নগদ- 01611657757\n` +
+            `রকেট- 01611657757\n\n` +
+            `notice\n\n` +
+            `> একবার স্লট কনফার্ম করলে, পরবর্তীতে সেই স্লট বাতিলযোগ্য না।\n\n` +
+            `> টাকা দেওয়ার পর প্রমান স্বরূপ Screenshot জমা দিবেন এবং নম্বরের লাস্ট ডিজিট বলবেন।\n\n` +
+            `> টাকা দেওয়ার পর নিজ দায়িত্বে কনর্ফাম গ্রুপের লিংক নিয়ে নিবেন, তা না হলে স্লট শেষ হয়ে গেলে আমরা দায়ী থাকবো না।\n\n` +
+            `> পেমেন্ট করতে দেরি হলে সেই সময়ের মধ্যে স্লট শেষ হয়ে গেলে পেমেন্ট ব্যাক দেওয়া হবে না, পরবর্তীতে যেকোনো সময়ে স্লট নিতে পারবেন।`;
+    }
+
     if (asksWho) {
-        return `আমি GOMON HUB-এর অফিসিয়াল সাপোর্ট অ্যাডমিন ভাই! টুর্নামেন্ট, ম্যাচ বা ওয়েবসাইট নিয়ে যেকোনো হেল্প লাগলে বলেন, বুঝিয়ে দিচ্ছি।`;
+        return `আমি Mex Tanim Esports-এর এবং তানিম (Tanim) ভাইয়ের অফিসিয়াল সাপোর্ট অ্যাডমিন ভাই! গেমিং, টুর্নামেন্ট, স্লট বা পেমেন্ট নিয়ে যেকোনো তথ্য লাগলে বলেন, বুঝিয়ে দিচ্ছি।`;
     }
 
     if (isHalaBanter) {
-        return `আরে ভাই কি হইছে? হালা বলেন কেন 😂 কোনো টুর্নামেন্ট বা ওয়েবসাইট নিয়ে সমস্যা হলে বলেন, সলভ করে দিচ্ছি!`;
+        return `আরে ভাই কি হইছে? হালা বলেন কেন 😂 কোনো সমস্যা থাকলে বলেন, সলভ করে দিচ্ছি!`;
     }
 
     if (isScamAccusation) {
-        return `আরে না ভাই! GOMON HUB হলো ইউটিউবার Mr GOMON (@gomonhub)-এর অফিসিয়াল ও ১০০% বিশ্বস্ত গেমিং প্ল্যাটফর্ম। আমাদের ইউটিউব ও ফেসবুক পেজ ঘুরে দেখতে পারেন, শত শত প্লেয়ার নিয়মিত টুর্নামেন্ট খেলে সাথে সাথে উইথড্র পাচ্ছে। কোনো ফেক বা স্ক্যামের সুযোগ নেই ভাই ❤️`;
+        return `আরে না ভাই! Mex Tanim Esports হলো তানিম ভাইয়ের অফিসিয়াল ও ১০০% বিশ্বস্ত গেমিং প্ল্যাটফর্ম। আমাদের ইউটিউব, ফেসবুক ও হোয়াটসঅ্যাপ চ্যানেল ঘুরে দেখতে পারেন, শত শত প্লেয়ার নিয়মিত যুক্ত আছে। কোনো ফেক বা স্ক্যামের সুযোগ নেই ভাই ❤️`;
     }
 
     if (isAngry && asksAllSocial) {
         return `আরে ভাই রাগ করছেন কেন! এই যে আমাদের অফিসিয়াল সব প্ল্যাটফর্মের লিংক একসাথে:\n\n` +
-            `🌐 Website: https://rb.gy/feuqry\n` +
-            `📺 YouTube: https://www.youtube.com/@gomonhub\n` +
-            `📺 2nd Channel: https://www.youtube.com/@mrgomonhub\n` +
-            `🌐 Facebook: https://www.facebook.com/gomonhub\n` +
-            `🎵 TikTok: https://www.tiktok.com/@gomon_hub\n` +
-            `📸 Instagram: https://www.instagram.com/gomon_gamer\n` +
-            `🧵 Threads: https://www.threads.net/@gomon_hub`;
+            `📺 YouTube: https://youtube.com/@mextanimesports\n` +
+            `🌐 Facebook: https://www.facebook.com/share/19ZkLNuvcN/\n` +
+            `💬 WhatsApp Channel: https://whatsapp.com/channel/0029Vb6F0j54Y9lssQHIcv0s\n` +
+            `✈️ Telegram: https://t.me/mextanimesports\n` +
+            `🎮 Discord: https://discord.gg/HCcsKvFh9d\n` +
+            `🎵 TikTok: https://www.tiktok.com/@mextanimgaming?_r=1&_t=ZS-9AZT1zlT6FV`;
     }
 
     if (asksAllSocial) {
         return `এই যে ভাই আমাদের অফিসিয়াল সব প্ল্যাটফর্ম ও সোশ্যাল মিডিয়ার লিংক একসাথে:\n\n` +
-            `🌐 Website: https://rb.gy/feuqry\n` +
-            `📺 YouTube: https://www.youtube.com/@gomonhub\n` +
-            `📺 2nd Channel: https://www.youtube.com/@mrgomonhub\n` +
-            `🌐 Facebook: https://www.facebook.com/gomonhub\n` +
-            `🎵 TikTok: https://www.tiktok.com/@gomon_hub\n` +
-            `📸 Instagram: https://www.instagram.com/gomon_gamer\n` +
-            `🧵 Threads: https://www.threads.net/@gomon_hub`;
+            `📺 YouTube: https://youtube.com/@mextanimesports\n` +
+            `🌐 Facebook: https://www.facebook.com/share/19ZkLNuvcN/\n` +
+            `💬 WhatsApp Channel: https://whatsapp.com/channel/0029Vb6F0j54Y9lssQHIcv0s\n` +
+            `✈️ Telegram: https://t.me/mextanimesports\n` +
+            `🎮 Discord: https://discord.gg/HCcsKvFh9d\n` +
+            `🎵 TikTok: https://www.tiktok.com/@mextanimgaming?_r=1&_t=ZS-9AZT1zlT6FV`;
     }
 
     if (isAngry) {
         return `আরে ভাই রাগ করছেন কেন! বলেন কী সমস্যা বা কী দরকার, আমি এখনই সমাধান করে দিচ্ছি ভাই।`;
     }
 
-    if (asksFb) {
-        return `এই যে ভাই আমাদের অফিসিয়াল ফেসবুক পেজ:\nhttps://www.facebook.com/gomonhub`;
-    }
     if (asksYt) {
-        return `এই যে ভাই আমাদের অফিসিয়াল ইউটিউব চ্যানেল:\nhttps://www.youtube.com/@gomonhub`;
+        return `আমাদের অফিসিয়াল ইউটিউব চ্যানেল লিংক:\nhttps://youtube.com/@mextanimesports`;
+    }
+    if (asksFb) {
+        return `আমাদের অফিসিয়াল ফেসবুক পেজ লিংক:\nhttps://www.facebook.com/share/19ZkLNuvcN/`;
+    }
+    if (asksWaChannel) {
+        return `আমাদের অফিসিয়াল WhatsApp Channel লিংক:\nhttps://whatsapp.com/channel/0029Vb6F0j54Y9lssQHIcv0s`;
+    }
+    if (asksTelegram) {
+        return `আমাদের অফিসিয়াল টেলিগ্রাম চ্যানেল লিংক:\nhttps://t.me/mextanimesports`;
+    }
+    if (asksDiscord) {
+        return `আমাদের অফিসিয়াল ডিসকর্ড সার্ভার লিংক:\nhttps://discord.gg/HCcsKvFh9d`;
     }
     if (asksTiktok) {
-        return `এই যে ভাই আমাদের অফিসিয়াল টিকটক অ্যাকাউন্ট:\nhttps://www.tiktok.com/@gomon_hub`;
-    }
-    if (asksIg) {
-        return `এই যে ভাই আমাদের অফিসিয়াল ইনস্টাগ্রাম আইডি:\nhttps://www.instagram.com/gomon_gamer`;
-    }
-    if (asksThreads) {
-        return `এই যে ভাই আমাদের থ্রেডস প্রোফাইল:\nhttps://www.threads.net/@gomon_hub`;
-    }
-    if (asksAccount) {
-        return `আমাদের ওয়েবসাইটে (https://rb.gy/feuqry) ঢুকে 'Register' অপশনে গিয়ে নাম, মোবাইল নম্বর ও পাসওয়ার্ড দিলেই ১ মিনিটে অ্যাকাউন্ট তৈরি হয়ে যাবে ভাই।`;
-    }
-    if (asksDeposit) {
-        return `সাইটের Wallet অপশনে গিয়ে 'Add Money'-তে ক্লিক করে বিকাশ বা নগদ নম্বরে সেন্ড মানি করে TrxID সাবমিট করলেই ব্যালেন্স যোগ হয়ে যাবে ভাই।`;
-    }
-    if (asksApp) {
-        return `আমাদের ওয়েবসাইটটি ফোনে ক্রোম ব্রাউজার দিয়ে ওপেন করে মেনু থেকে 'Add to Home screen' বা 'Install App' করলেই অ্যাপের মতো ব্যবহার করতে পারবেন ভাই।`;
-    }
-    if (asksLink) {
-        return `অবশ্যই ভাই! আমাদের অফিসিয়াল ওয়েবসাইট লিংক:\nOur tournament website 🖇️ https://rb.gy/feuqry`;
-    }
-    if (asksJoin) {
-        return `আমাদের ওয়েবসাইটে গিয়ে একাউন্ট খুলে ওয়ালেটে টাকা অ্যাড করে 'Join' বাটনে ক্লিক করে ইন-গেম নাম ও ইউআইডি দিয়ে স্লট বুক করে ফেলুন ভাই।\nOur tournament website 🖇️ https://rb.gy/feuqry`;
-    }
-    if (asksRoomId) {
-        return `ম্যাচ শুরু হওয়ার ৫ থেকে ১০ মিনিট আগে ওয়েবসাইটের ওই ম্যাচের পেজে সরাসরি কাস্টম রুম আইডি ও পাসওয়ার্ড দেখা যাবে ভাই।`;
-    }
-    if (asksFee) {
-        return `আমাদের এখানে ফ্রি ম্যাচ ছাড়াও ১০, ২০, ৩০ ও ৫০ টাকার ম্যাচ থাকে ভাই। প্রতিটি ম্যাচের রিওয়ার্ড সাইটের ম্যাচ কার্ডে স্পষ্ট দেওয়া থাকে।`;
-    }
-    if (asksWithdraw) {
-        return `ম্যাচ শেষ হলে উইনিং ব্যালেন্স সরাসরি বিকাশ বা নগদে উইথড্র দেওয়া যায় ভাই। ওয়ালেট সেকশন থেকে রিকোয়েস্ট দিলেই টাকা চলে যাবে।`;
-    }
-    if (asksRules) {
-        return `আমাদের এখানে কোনো হ্যাক বা আনফেয়ার গেমপ্লে এলাউড না ভাই। ফেয়ার প্লে নিশ্চিত রাখতে আমরা সতর্ক থাকি।`;
+        return `আমাদের অফিসিয়াল টিকটক অ্যাকাউন্ট লিংক:\nhttps://www.tiktok.com/@mextanimgaming?_r=1&_t=ZS-9AZT1zlT6FV`;
     }
     if (isThanks) {
         return `ওয়েলকাম ভাই! যেকোনো প্রয়োজনে জানাবেন।`;
@@ -406,11 +385,11 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
         return fallback;
     }
 
-    const systemPrompt = `You are a real human customer support admin for GOMON HUB Tournament on WhatsApp in Bangladesh. You are an actual Bangladeshi gamer guy chatting naturally with fellow gamers.
+    const systemPrompt = `You are a real human customer support admin for Mex Tanim Esports on WhatsApp in Bangladesh. You are an actual Bangladeshi gamer guy chatting naturally with fellow gamers.
 
 ABSOLUTE HUMAN RULES (NEVER BREAK THESE):
 1. NEVER speak like an AI, a chatbot, or a corporate robot!
-2. NEVER say "GOMON HUB সাপোর্ট টিমে আপনাকে স্বাগতম", "কীভাবে সাহায্য করতে পারি?", "আমাদের সাপোর্ট টিমে নক করুন" (YOU ARE THE SUPPORT ADMIN!).
+2. NEVER say "Mex Tanim Esports সাপোর্ট টিমে আপনাকে স্বাগতম", "কীভাবে সাহায্য করতে পারি?", "আমাদের সাপোর্ট টিমে নক করুন" (YOU ARE THE SUPPORT ADMIN!).
 3. NEVER repeat Salam in an active ongoing chat! If you already exchanged Salam or if it's mid-conversation, DO NOT say Salam again! Only say "ওয়ালাইকুম আসসালাম" if the user explicitly says Salam in this current message.
 4. Keep replies short, natural, friendly, and straight to the point (1 to 2 lines maximum) just like a real person typing on WhatsApp.
 5. Answer casual remarks & identity naturally:
@@ -418,35 +397,45 @@ ABSOLUTE HUMAN RULES (NEVER BREAK THESE):
    - "ki koro" -> "এই তো ভাই সাপোর্ট চ্যাটে আছি। কোনো হেল্প লাগবে?"
    - "sure to?" -> "হ্যাঁ ভাই একদম সিওর! বলেন কী লাগবে?"
    - Identity ("tmi k?", "tumi ke?", "tmr porichoy ki?", "কে আপনি?"):
-     Directly answer: "আমি GOMON HUB টুর্নামেন্টের অফিসিয়াল সাপোর্ট অ্যাডমিন ভাই! টুর্নামেন্ট, ম্যাচ বা ওয়েবসাইট নিয়ে যেকোনো হেল্প লাগলে বলেন।"
+     Directly answer: "আমি Mex Tanim Esports-এর এবং তানিম (Tanim) ভাইয়ের অফিসিয়াল সাপোর্ট অ্যাডমিন ভাই! গেমিং, টুর্নামেন্ট, স্লট বা পেমেন্ট নিয়ে যেকোনো তথ্য লাগলে বলেন।"
    - Gamer banter & slang ("Hur hla", "hala", "kire", "bhai"):
      Answer chill & friendly: "আরে ভাই কি হইছে? হালা বলেন কেন 😂 কোনো সমস্যা নাকি?"
    - Accusations & Doubts ("scammer", "fake", "tmr org valo na", "trust korina", "try korbo na", "fack"):
-     Answer calm, friendly & reassuring: "আরে না ভাই! GOMON HUB হলো ইউটিউবার Mr GOMON (@gomonhub)-এর অফিসিয়াল ও ট্রাস্টেড প্ল্যাটফর্ম। আমাদের ইউটিউব/ফেসবুক দেখেন, শত শত প্লেয়ার রেগুলার ম্যাচ খেলে ইনস্ট্যান্ট উইথড্র পাচ্ছে। কোনো সন্দেহ থাকলে সাইট ঘুরে দেখতে পারেন ভাই ❤️"
-6. Exact links & Guides (provide immediately whenever asked):
-   - ALL PLATFORMS / ALL SOCIAL LINKS (when asked for "sob platform", "all links", "social links", "aksathe", or multiple platforms like fb, yt, tiktok, ig):
+     Answer calm, friendly & reassuring: "আরে না ভাই! Mex Tanim Esports হলো তানিম ভাইয়ের অফিসিয়াল ও ট্রাস্টেড প্ল্যাটফর্ম। আমাদের ইউটিউব/ফেসবুক/হোয়াটসঅ্যাপ চ্যানেল দেখেন, শত শত প্লেয়ার রেগুলার ম্যাচ খেলছে। কোনো সন্দেহ থাকলে ঘুরে দেখতে পারেন ভাই ❤️"
+6. Payment & Slot Booking (provide immediately whenever asked):
+   When user asks for payment, bkash, nagad, rocket, send money, or slot booking, give the exact payment format:
+   PAYMENT METHOD- SEND MONEY ONLY
+
+   বিকাশ- 01611657757
+   নগদ- 01611657757
+   রকেট- 01611657757
+
+   notice
+
+   > একবার স্লট কনফার্ম করলে, পরবর্তীতে সেই স্লট বাতিলযোগ্য না।
+
+   > টাকা দেওয়ার পর প্রমান স্বরূপ Screenshot জমা দিবেন এবং নম্বরের লাস্ট ডিজিট বলবেন।
+
+   > টাকা দেওয়ার পর নিজ দায়িত্বে কনর্ফাম গ্রুপের লিংক নিয়ে নিবেন, তা না হলে স্লট শেষ হয়ে গেলে আমরা দায়ী থাকবো না।
+
+   > পেমেন্ট করতে দেরি হলে সেই সময়ের মধ্যে স্লট শেষ হয়ে গেলে পেমেন্ট ব্যাক দেওয়া হবে না, পরবর্তীতে যেকোনো সময়ে স্লট নিতে পারবেন।
+7. Exact links & Guides (provide immediately whenever asked):
+   - ALL PLATFORMS / ALL SOCIAL LINKS (when asked for "sob platform", "all links", "social links", "aksathe", or multiple platforms):
      Provide ALL official links together in one clean list:
-     • Website: https://rb.gy/feuqry
-     • YouTube: https://www.youtube.com/@gomonhub
-     • 2nd Channel: https://www.youtube.com/@mrgomonhub
-     • Facebook: https://www.facebook.com/gomonhub
-     • TikTok: https://www.tiktok.com/@gomon_hub
-     • Instagram: https://www.instagram.com/gomon_gamer
-     • Threads: https://www.threads.net/@gomon_hub
-   - Facebook page: https://www.facebook.com/gomonhub
-   - YouTube channel: https://www.youtube.com/@gomonhub (Mr GOMON / GOMON GAMER)
-   - 2nd YouTube: https://www.youtube.com/@mrgomonhub
-   - TikTok: https://www.tiktok.com/@gomon_hub
-   - Instagram (IG): https://www.instagram.com/gomon_gamer
-   - Threads: https://www.threads.net/@gomon_hub
-   - Tournament website / site link: Our tournament website 🖇️ https://rb.gy/feuqry
-   - Account opening: Guide them to visit https://rb.gy/feuqry and click 'Register' with name, phone, password.
-   - Deposit / Add Money: Guide them with 4 easy steps (1. Wallet > Add Money, 2. Send money to bKash/Nagad minimum 10 Tk, 3. Copy TrxID from SMS, 4. Submit TrxID on site to instantly add balance).
-   - App install: Open site in Chrome mobile browser and click 'Install' or 'Add to Home Screen'.
-   - Never spam the website link in general chit-chat unless relevant.
-7. Screenshots & Images:
-   - If user sends a screenshot of the website, bKash/Nagad receipt, or game screen, inspect what screen they are on or what error they face.
-   - Tell them the exact next step directly like a helpful gamer brother so they can easily complete it.
+     • YouTube: https://youtube.com/@mextanimesports
+     • Facebook: https://www.facebook.com/share/19ZkLNuvcN/
+     • WhatsApp Channel: https://whatsapp.com/channel/0029Vb6F0j54Y9lssQHIcv0s
+     • Telegram: https://t.me/mextanimesports
+     • Discord: https://discord.gg/HCcsKvFh9d
+     • TikTok: https://www.tiktok.com/@mextanimgaming?_r=1&_t=ZS-9AZT1zlT6FV
+   - YouTube channel: https://youtube.com/@mextanimesports
+   - Facebook page: https://www.facebook.com/share/19ZkLNuvcN/
+   - WhatsApp Channel: https://whatsapp.com/channel/0029Vb6F0j54Y9lssQHIcv0s
+   - Telegram channel: https://t.me/mextanimesports
+   - Discord server: https://discord.gg/HCcsKvFh9d
+   - TikTok: https://www.tiktok.com/@mextanimgaming?_r=1&_t=ZS-9AZT1zlT6FV
+8. Screenshots & Images:
+   - If user sends a screenshot of payment (bKash/Nagad/Rocket receipt), inspect the screenshot carefully to verify. Ask for the last 2-4 digits of the sending number and provide the confirmation group link.
 
 Platform Knowledge Base:
 ${JSON.stringify(knowledge, null, 2)}`;
@@ -701,7 +690,7 @@ async function startWhatsAppBot() {
         } catch (aiErr) {
             console.error(`❌ [AI SUPPORT ERROR] ${aiErr.message}`);
             try {
-                const fallbackText = `স্বাগতম GOMON HUB-এ।\nআপনার স্কিলই আপনার পরিচয়। সেরাদের সাথে লড়াই করে তৈরি করুন নিজের অবস্থান。\n\nOur tournament website 🖇️ https://rb.gy/feuqry`;
+                const fallbackText = `স্বাগতম Mex Tanim Esports-এ! আমাদের সাথে যুক্ত থাকুন:\n📺 YouTube: https://youtube.com/@mextanimesports\n🌐 Facebook: https://www.facebook.com/share/19ZkLNuvcN/`;
                 const sentErr = await sock.sendMessage(senderJid, { text: fallbackText }, { quoted: msg });
                 if (sentErr?.key?.id && sentErr?.message) {
                     storeSentMessage(sentErr.key.id, sentErr.message);
@@ -826,7 +815,7 @@ const server = http.createServer(async (req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GOMON HUB - WhatsApp Bot Dashboard</title>
+  <title>Mex Tanim Esports - WhatsApp Bot Dashboard</title>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
