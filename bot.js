@@ -391,9 +391,9 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
     } catch (_) {}
 
     const candidateKeys = getOrderedCandidateKeys();
-    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-3.0-flash';
-    const secondaryModel = (primaryModel === 'gemini-3.0-flash') ? 'gemini-2.5-flash' : 'gemini-3.0-flash';
-    const tertiaryModel = 'gemini-3.0-pro';
+    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-3-flash-preview';
+    const secondaryModel = (primaryModel === 'gemini-3-flash-preview') ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
+    const tertiaryModel = 'gemini-2.5-pro';
 
     const mem = getChatMemory(senderPhone);
 

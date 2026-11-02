@@ -9,5 +9,5 @@
     "youtube_2nd": "https://www.youtube.com/@mrgomonhub"
   },
   "gemini_api_key": "",
-  "ai_model": "gemini-3.0-flash"
+  "ai_model": "gemini-3-flash-preview"
 }
