@@ -140,7 +140,7 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
 
     // Identity inquiry
     if (asksWho) {
-        return `আমি GOMON HUB এর তৈরি করা Support Agent... Tanim এর Support Admin ভাই! Mex Tanim Esports-এর স্লট বুকিং, পেমেন্ট বা যেকোনো প্রয়োজনে কীভাবে সাহায্য করতে পারি বলেন?`;
+        return `আমি GOMON HUB-এর তৈরি করা সাপোর্ট এজেন্ট... তানিম ভাইয়ের সাপোর্ট অ্যাডমিন ভাই! Mex Tanim Esports-এর স্লট বুকিং, পেমেন্ট বা যেকোনো প্রয়োজনে কীভাবে সাহায্য করতে পারি বলেন?`;
     }
 
     if (isHalaBanter) {
@@ -424,7 +424,7 @@ DEVELOPER / CREATOR MODE:
   • Threads: https://www.threads.net/@gomon_hub
 
 IDENTITY RULE (WHEN ASKED "tmi k?", "tumi ke?", "কে তুমি?", "tmr porichoy ki?"):
-- Answer EXACTLY: "Ami gomon hub er toiri kora Support Agent...Tanim er Support Admin! Mex Tanim Esports-এর স্লট বুকিং, পেমেন্ট বা যেকোনো প্রয়োজনে কীভাবে সাহায্য করতে পারি ভাই?"
+- Answer EXACTLY in natural, clean Bengali: "আমি GOMON HUB-এর তৈরি করা সাপোর্ট এজেন্ট... তানিম ভাইয়ের সাপোর্ট অ্যাডমিন ভাই! Mex Tanim Esports-এর স্লট বুকিং, পেমেন্ট বা যেকোনো প্রয়োজনে কীভাবে সাহায্য করতে পারি বলেন?"
 
 PAYMENT & SLOT BOOKING RULES:
 - When anyone asks for payment method, bKash/Nagad/Rocket number, sending money, deposit, or how to book a slot:
