@@ -429,6 +429,13 @@ DEVELOPER / CREATOR MODE & LEAD GENERATION (SALES PITCH TO CONVERT CLIENTS):
   • YouTube: https://www.youtube.com/@gomonhub
   • Facebook: https://www.facebook.com/gomonhub
 
+NUMBERS & PHONE NUMBER HANDLING RULES:
+- If user asks about or sends "01611657757": State that this is Mex Tanim Esports's official Send Money number for bKash, Nagad, and Rocket to book slots.
+- If user asks about or sends "01349966049": State that this is GOMON HUB (Mr GOMON ভাই)'s official WhatsApp contact for bot/website development (message only, no calls).
+- If user sends their personal phone number (e.g. 017..., 019..., 018...): Ask if this is the number they sent payment from, ask for screenshot + last digit to confirm their slot and give group link.
+- If user sends an in-game UID (8-10 digits): Ask if it's their Free Fire UID and which match/slot they wish to book.
+- If user sends random numbers: Politely ask what the number is for (payment, slot, or general inquiry) like a helpful gamer brother.
+
 IDENTITY RULE (WHEN ASKED "tmi k?", "tumi ke?", "কে তুমি?", "tmr porichoy ki?"):
 - Answer EXACTLY in natural, clean Bengali: "আমি GOMON HUB-এর তৈরি করা সাপোর্ট এজেন্ট... তানিম ভাইয়ের সাপোর্ট অ্যাডমিন ভাই! Mex Tanim Esports-এর স্লট বুকিং, পেমেন্ট বা যেকোনো প্রয়োজনে কীভাবে সাহায্য করতে পারি বলেন?"
 
@@ -728,74 +735,21 @@ async function startWhatsAppBot() {
 
         if (!text && !imageBase64) return;
 
-        // Detect verification format: "VERIFY 849201" or just "849201"
-        const otpMatch = text.match(/(?:VERIFY[\s:]*)?(\d{6})\b/i);
-
-        if (otpMatch) {
-            const code = otpMatch[1];
-            console.log(`\n📩 [INCOMING OTP RECEIVED] Sender: ${senderPhone} | Code: ${code}`);
-
-            // Check if matches any active web session
-            let matchedToken = null;
-            const now = Date.now();
-
-            for (const [token, sess] of Object.entries(pendingSessions)) {
-                if (sess.code === code && now < sess.expiresAt) {
-                    sess.verified = true;
-                    sess.senderPhone = senderPhone;
-                    matchedToken = token;
-                    console.log(`🎉 [SESSION MATCHED] Code ${code} verified for user ${sess.phone || 'Player'} (Sender: ${senderPhone})`);
-                    break;
-                }
-            }
-
-            if (matchedToken) {
-                const replyText = `✅ *ভেরিফিকেশন সফল হয়েছে!*\n\n` +
-                    `『 GOMON ARMY 』অফিসিয়াল সোশ্যাল লিংক:\n\n` +
-                    `• TikTok: https://www.tiktok.com/@gomon_hub\n` +
-                    `• Facebook: https://www.facebook.com/gomonhub\n` +
-                    `• Instagram: https://www.instagram.com/gomon_gamer\n` +
-                    `• Threads: https://www.threads.net/@gomon_hub\n` +
-                    `• YouTube: https://www.youtube.com/@gomonhub\n` +
-                    `• 2nd Channel: https://www.youtube.com/@mrgomonhub`;
-
-                try {
-                    await sock.sendMessage(senderJid, { text: replyText });
-                    console.log(`🚀 [SUCCESS CONFIRMATION SENT] To: ${senderPhone}`);
-                } catch (sendErr) {
-                    console.error(`❌ [SEND ERROR] ${sendErr.message}`);
-                }
-                console.log(`🎉 [WEB BROWSER AUTO-VERIFIED] Session ${matchedToken} is now verified! Screen updated.`);
-            } else {
-                // Invalid or Expired Code Alert
-                const invalidReplyText = `❌ *ভুল বা মেয়াদোত্তীর্ণ কোড!*\n\n` +
-                    `দুঃখিত! আপনার পাঠানো ভেরিফিকেশন কোডটি সঠিক নয় অথবা এর মেয়াদ (২ মিনিট) শেষ হয়ে গেছে।\n\n` +
-                    `💡 অনুগ্রহ করে ওয়েবসাইট থেকে ফ্রেশ নতুন কোড নিয়ে পুনরায় পাঠান। ধন্যবাদ! 🎮`;
-
-                try {
-                    await sock.sendMessage(senderJid, { text: invalidReplyText });
-                    console.log(`⚠️ [INVALID OTP ALERT SENT] To: ${senderPhone} (Code: ${code})`);
-                } catch (sendErr) {
-                    console.error(`❌ [SEND ERROR] ${sendErr.message}`);
-                }
-            }
-        } else {
-            // General conversation, greetings & queries handled by AI Support Agent
-            console.log(`💬 [MESSAGE RECEIVED] From: ${senderPhone} | Text: "${text}" | HasImage: ${!!imageBase64}`);
-            try {
-                // Instantly notify user with typing presence so they know bot is online & responding
-                sock.sendPresenceUpdate('composing', senderJid).catch(() => {});
-                const aiReply = await generateAiSupportReply(text, senderPhone, imageBase64, imageMime);
-                await sock.sendMessage(senderJid, { text: aiReply });
-                console.log(`🤖 [AI SUPPORT REPLIED] To: ${senderPhone}`);
-            } catch (aiErr) {
-                console.error(`❌ [AI SUPPORT ERROR] ${aiErr.message}`);
-                await sock.sendMessage(senderJid, {
-                    text: `স্বাগতম Mex Tanim Esports-এ!\nস্লট বুকিং, পেমেন্ট বা টুর্নামেন্ট নিয়ে যেকোনো হেল্প লাগলে জানান ভাই।\n\nYouTube: https://youtube.com/@mextanimesports`
-                });
-            } finally {
-                sock.sendPresenceUpdate('paused', senderJid).catch(() => {});
-            }
+        // OTP verification is disabled: All incoming WhatsApp messages go directly to AI Support Agent
+        console.log(`💬 [MESSAGE RECEIVED] From: ${senderPhone} | Text: "${text}" | HasImage: ${!!imageBase64}`);
+        try {
+            // Instantly notify user with typing presence so they know bot is online & responding
+            sock.sendPresenceUpdate('composing', senderJid).catch(() => {});
+            const aiReply = await generateAiSupportReply(text, senderPhone, imageBase64, imageMime);
+            await sock.sendMessage(senderJid, { text: aiReply });
+            console.log(`🤖 [AI SUPPORT REPLIED] To: ${senderPhone}`);
+        } catch (aiErr) {
+            console.error(`❌ [AI SUPPORT ERROR] ${aiErr.message}`);
+            await sock.sendMessage(senderJid, {
+                text: `স্বাগতম Mex Tanim Esports-এ!\nস্লট বুকিং, পেমেন্ট বা টুর্নামেন্ট নিয়ে যেকোনো হেল্প লাগলে জানান ভাই।\n\nYouTube: https://youtube.com/@mextanimesports`
+            });
+        } finally {
+            sock.sendPresenceUpdate('paused', senderJid).catch(() => {});
         }
     }
 
