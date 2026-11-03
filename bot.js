@@ -83,6 +83,23 @@ function restoreSessionFromEnv() {
     }
 }
 
+// Bot Active / Paused State (Tanim Owner Master Switch)
+const stateFilePath = path.join(__dirname, 'bot_state.json');
+let isBotPaused = false;
+try {
+    if (fs.existsSync(stateFilePath)) {
+        const saved = JSON.parse(fs.readFileSync(stateFilePath, 'utf8'));
+        isBotPaused = !!saved.isBotPaused;
+    }
+} catch (_) {}
+
+function setBotPaused(paused) {
+    isBotPaused = paused;
+    try {
+        fs.writeFileSync(stateFilePath, JSON.stringify({ isBotPaused: paused }, null, 2), 'utf8');
+    } catch (_) {}
+}
+
 // Active chat conversation memory per sender
 // senderPhone -> { lastActive: timestamp, greeted: boolean, history: [ { role: 'user' | 'model', parts: [{ text }] } ] }
 const chatMemories = {};
@@ -735,7 +752,13 @@ async function startWhatsAppBot() {
 
         if (!text && !imageBase64) return;
 
-        // OTP verification is disabled: All incoming WhatsApp messages go directly to AI Support Agent
+        // Master Kill Switch Check: If Tanim (Owner) paused the bot, silently ignore customer messages
+        if (isBotPaused) {
+            console.log(`⏸️ [BOT PAUSED] Message from ${senderPhone} ignored because bot is switched OFF by Admin.`);
+            return;
+        }
+
+        // All incoming WhatsApp messages go directly to AI Support Agent
         console.log(`💬 [MESSAGE RECEIVED] From: ${senderPhone} | Text: "${text}" | HasImage: ${!!imageBase64}`);
         try {
             // Instantly notify user with typing presence so they know bot is online & responding
@@ -753,14 +776,93 @@ async function startWhatsAppBot() {
         }
     }
 
+    // Handles Owner / Admin Master Switch Commands (#bot off / #bot on / #bot status)
+    async function handleAdminBotToggle(commandText, targetJid) {
+        const raw = (commandText || '').trim().toLowerCase();
+
+        const isOffCmd = /^(?:[#!]?bot\s+off|[#!]off|bot\s*off|বট\s*অফ)$/i.test(raw);
+        const isOnCmd = /^(?:[#!]?bot\s+on|[#!]on|bot\s*on|বট\s*অন)$/i.test(raw);
+        const isStatusCmd = /^(?:[#!]?bot\s+status|[#!]status|bot\s*status|বট\s*স্ট্যাটাস)$/i.test(raw);
+
+        if (!isOffCmd && !isOnCmd && !isStatusCmd) return false;
+
+        if (isOffCmd) {
+            setBotPaused(true);
+            console.log(`\n🛑 [ADMIN MASTER SWITCH] Mex Tanim Esports AI Bot turned OFF by Admin.\n`);
+            const reply = `🔴 *Mex Tanim Esports AI বট বন্ধ (OFF) করা হয়েছে!*\n\n` +
+                `এখন থেকে এআই কোনো মেসেজের স্বয়ংক্রিয় উত্তর দেবে না। আপনি নিজে ম্যানুয়ালি কাস্টমারদের সাথে চ্যাট করতে পারবেন।\n\n` +
+                `▶️ পুনরায় চালু করতে লিখুন: *#bot on*`;
+            try {
+                await sock.sendMessage(targetJid, { text: reply });
+            } catch (e) {
+                console.error(`[ADMIN SWITCH ERROR]`, e.message);
+            }
+            return true;
+        }
+
+        if (isOnCmd) {
+            setBotPaused(false);
+            console.log(`\n🟢 [ADMIN MASTER SWITCH] Mex Tanim Esports AI Bot turned ON by Admin.\n`);
+            const reply = `🟢 *Mex Tanim Esports AI বট চালু (ON) করা হয়েছে!*\n\n` +
+                `এখন থেকে এআই ২৪/৭ স্বয়ংক্রিয়ভাবে সব কাস্টমারদের মেসেজের রিপ্লাই দেবে।\n\n` +
+                `⏸️ সাময়িকভাবে বন্ধ করতে লিখুন: *#bot off*`;
+            try {
+                await sock.sendMessage(targetJid, { text: reply });
+            } catch (e) {
+                console.error(`[ADMIN SWITCH ERROR]`, e.message);
+            }
+            return true;
+        }
+
+        if (isStatusCmd) {
+            console.log(`\nℹ️ [ADMIN MASTER SWITCH] Bot status queried by Admin.\n`);
+            const reply = `🤖 *Mex Tanim Esports AI বট স্ট্যাটাস:*\n\n` +
+                `বর্তমান অবস্থা: ${isBotPaused ? '🔴 বন্ধ (PAUSED / OFF)' : '🟢 চালু (ACTIVE / ON)'}\n\n` +
+                `• বন্ধ করতে লিখুন: *#bot off*\n` +
+                `• চালু করতে লিখুন: *#bot on*`;
+            try {
+                await sock.sendMessage(targetJid, { text: reply });
+            } catch (e) {
+                console.error(`[ADMIN SWITCH ERROR]`, e.message);
+            }
+            return true;
+        }
+
+        return false;
+    }
+
     // Listen to incoming messages (handles multiple users simultaneously and queues bursts per user)
     sock.ev.on('messages.upsert', async ({ messages }) => {
         if (!messages || messages.length === 0) return;
         for (const msg of messages) {
-            if (!msg || !msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') continue;
+            if (!msg || !msg.message || msg.key.remoteJid === 'status@broadcast') continue;
             // Ignore group messages at the root so they never hit session ciphers
             if ((msg.key.remoteJid || '').endsWith('@g.us')) continue;
-            const senderPhone = (msg.key.remoteJid || '').replace(/@.*$/, '');
+
+            const senderJid = msg.key.remoteJid;
+            const senderPhone = (senderJid || '').replace(/@.*$/, '');
+            const isFromMe = !!msg.key.fromMe;
+
+            const text = (
+                msg.message.conversation ||
+                msg.message.extendedTextMessage?.text ||
+                msg.message.imageMessage?.caption ||
+                ''
+            ).trim();
+
+            // Check if sender is Authorized Admin (Tanim using bot's own WhatsApp or GOMON developer)
+            const cleanBotPhone = (config.bot_phone_number || '').replace(/\D/g, '');
+            const cleanDevPhone = (config.developer_info?.whatsapp || '').replace(/\D/g, '');
+            const isAdmin = isFromMe || senderPhone.includes(cleanBotPhone) || (cleanDevPhone && senderPhone.includes(cleanDevPhone));
+
+            if (isAdmin && text) {
+                const handled = await handleAdminBotToggle(text, senderJid);
+                if (handled) continue;
+            }
+
+            // Normal customer messages ignore fromMe (bot never replies to its own sent messages)
+            if (isFromMe) continue;
+
             queueMessageForSender(senderPhone, () => processSingleMessage(msg));
         }
     });
@@ -849,6 +951,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             connected: isConnected,
+            isBotPaused: isBotPaused,
             hasQr: !!currentQrDataUrl,
             qrImage: currentQrDataUrl || null,
             pairingCode: currentPairingCode,
