@@ -118,7 +118,7 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
     const asksWaChannel = /(?:whatsapp channel|wa channel|চ্যানেল|channel)/i.test(raw);
 
     const platformMentionsCount = [asksFb, asksYt, asksTiktok, asksTg, asksDiscord, asksWaChannel].filter(Boolean).length;
-    const asksAllSocial = /(?:sob|shob|সব|all).*(?:platform|link|লিংক|প্ল্যাটফর্ম|সোশ্যাল|social|media|গূলা|গুলা|গুলো)|(?:social|সোশ্যাল).*(?:link|লিংক)|(?:aksathe|একসাথে).*(?:link|লিংক|দিতে|দেও|দাও|problem)|(?:link|লিংক).*(?:aksathe|একসাথে)|(?:platform|প্ল্যাটফর্ম)/i.test(raw) || (platformMentionsCount >= 2);
+    const asksAllSocial = /(?:sob|shob|সব|all).*(?:platform|link|লিংক|প্ল্যাটফর্ম|সোশ্যাল|social|media|গূলা|গুলা|গুলো)|(?:platform|link|লিংক|সোশ্যাল|social).*(?:sob|shob|সব|all)|(?:social|সোশ্যাল).*(?:link|লিংক)|(?:aksathe|একসাথে).*(?:link|লিংক|দিতে|দেও|দাও|problem)|(?:link|লিংক).*(?:aksathe|একসাথে)|(?:platform|প্ল্যাটফর্ম)/i.test(raw) || (platformMentionsCount >= 2);
     const isAngry = /(?:bainchod|mc|bc|madarchod|khankir|chutiya|বাইনচোদ|খানকির|চুদি|শালা|হারামি)/i.test(raw);
     const isScamAccusation = /(?:scam|scammer|স্ক্যাম|স্ক্যামার|fraud|প্রতারক|ভুয়া|ভুয়া|fake|চিটার|চোর|fack|baje org|org valo na|valo na|trust|bisshas|বিশ্বাস)/i.test(raw);
 
@@ -211,11 +211,9 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
     }
     if (alreadyGreeted) {
         const casualReplies = [
-            `জি ভাই বলেন, কী খবর?`,
-            `আছি ভাই, বলেন কোনো হেল্প লাগবে?`,
-            `হ্যাঁ ভাই বলেন, শুনতে পাচ্ছি।`,
-            `বলেন ভাই, কীভাবে সাহায্য করতে পারি?`,
-            `জি ভাই, কী বিষয় বলুন?`
+            `জি ভাই বলেন, Mex Tanim Esports-এর স্লট বুকিং, পেমেন্ট বা যেকোনো প্রয়োজনে কীভাবে সাহায্য করতে পারি?`,
+            `আছি ভাই! টুর্নামেন্ট স্লট, পেমেন্ট নম্বর বা সোশ্যাল লিংক লাগলে বলেন, দিয়ে দিচ্ছি।`,
+            `হ্যাঁ ভাই বলেন, শুনতে পাচ্ছি! Mex Tanim Esports নিয়ে কোনো তথ্য লাগবে ভাই?`
         ];
         let chosen = casualReplies[Math.floor(Math.random() * casualReplies.length)];
         if (mem && mem.lastFallback && casualReplies.length > 1) {
@@ -225,7 +223,7 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
         if (mem) mem.lastFallback = chosen;
         return chosen;
     }
-    return `জি ভাই বলেন, কী অবস্থা?`;
+    return `জি ভাই বলেন, Mex Tanim Esports-এর স্লট বা পেমেন্ট নিয়ে কোনো হেল্প লাগবে?`;
 }
 
 function requestGeminiApi(modelName, data, apiKey, timeoutMs = 12000) {
@@ -386,9 +384,8 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
     } catch (_) {}
 
     const candidateKeys = getOrderedCandidateKeys();
-    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-3.5-flash';
-    const secondaryModel = (primaryModel === 'gemini-3.5-flash') ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash';
-    const tertiaryModel = 'gemini-3.5-flash-lite';
+    const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-3.5-flash-lite';
+    const secondaryModel = (primaryModel === 'gemini-3.5-flash-lite') ? 'gemini-3.5-flash' : 'gemini-3.5-flash-lite';
 
     const mem = getChatMemory(senderPhone);
 
@@ -502,44 +499,36 @@ ${JSON.stringify(knowledge, null, 2)}`;
 
     let cleanReply = null;
 
-    // Failover loop across candidate API keys
+    // Pass 1: Try Primary Model (gemini-3.5-flash-lite) across all candidate keys (4.5s fast timeout)
     for (let i = 0; i < candidateKeys.length; i++) {
         const activeKey = candidateKeys[i];
         const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
 
         try {
-            // 1. Try Primary Model (15s timeout)
-            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 15000);
+            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 4500);
             if (cleanReply) break;
-        } catch (primaryErr) {
-            if (primaryErr.statusCode === 429) {
-                console.warn(`⚠️ [GEMINI 429 RATE LIMIT on Key ${maskedKey}] Putting key on 60s cooldown. Auto-failing over to next key in pool...`);
+        } catch (err) {
+            console.warn(`⚠️ [GEMINI PRIMARY ERROR (${primaryModel}) Key ${maskedKey}] ${err.message}. Instant failover to next key in pool...`);
+            if (err.statusCode === 429 || err.statusCode === 503 || err.statusCode === 408) {
                 keyCooldowns[activeKey] = Date.now() + 60000;
-                continue;
             }
+        }
+    }
 
-            console.warn(`⚠️ [GEMINI PRIMARY ERROR (${primaryModel}) Key ${maskedKey}] ${primaryErr.message}. Trying secondary model...`);
+    // Pass 2: Secondary Model (gemini-3.5-flash) across key pool if primary pass had issues
+    if (!cleanReply) {
+        console.warn(`⚠️ [GEMINI PASS 1 COMPLETE] Trying secondary model (${secondaryModel}) across key pool...`);
+        for (let i = 0; i < candidateKeys.length; i++) {
+            const activeKey = candidateKeys[i];
+            const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
+
             try {
-                // 2. Try Secondary Model (12s timeout)
-                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 12000);
+                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 4500);
                 if (cleanReply) break;
-            } catch (secErr) {
-                if (secErr.statusCode === 429) {
-                    console.warn(`⚠️ [GEMINI 429 RATE LIMIT (Sec) on Key ${maskedKey}] Putting key on 60s cooldown. Auto-failing over to next key...`);
+            } catch (err) {
+                console.warn(`⚠️ [GEMINI SECONDARY ERROR (${secondaryModel}) Key ${maskedKey}] ${err.message}.`);
+                if (err.statusCode === 429 || err.statusCode === 503 || err.statusCode === 408) {
                     keyCooldowns[activeKey] = Date.now() + 60000;
-                    continue;
-                }
-
-                console.warn(`⚠️ [GEMINI SECONDARY ERROR (${secondaryModel}) Key ${maskedKey}] ${secErr.message}. Trying tertiary model...`);
-                try {
-                    // 3. Try Tertiary Model (10s timeout)
-                    cleanReply = await requestGeminiApi(tertiaryModel, data, activeKey, 10000);
-                    if (cleanReply) break;
-                } catch (tertErr) {
-                    if (tertErr.statusCode === 429) {
-                        keyCooldowns[activeKey] = Date.now() + 60000;
-                    }
-                    console.warn(`⚠️ [GEMINI TERTIARY ERROR (${tertiaryModel}) Key ${maskedKey}] ${tertErr.message}.`);
                 }
             }
         }
@@ -917,14 +906,14 @@ const server = http.createServer(async (req, res) => {
             tests: []
         };
 
-        const testModels = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+        const testModels = ['gemini-3.5-flash-lite', 'gemini-3.5-flash'];
         for (let i = 0; i < pool.length; i++) {
             const k = pool[i];
             const mask = k.length > 8 ? `${k.slice(0, 4)}...${k.slice(-4)}` : 'KEY';
             const keyReport = { key: mask, models: {} };
             for (const m of testModels) {
                 try {
-                    const reply = await requestGeminiApi(m, testPayload, k, 15000);
+                    const reply = await requestGeminiApi(m, testPayload, k, 6000);
                     keyReport.models[m] = { success: true, reply };
                 } catch (e) {
                     keyReport.models[m] = { success: false, error: e.message };
