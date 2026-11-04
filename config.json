@@ -22,6 +22,7 @@
   "messages": {
     "success_verified": "✅ *ভেরিফিকেশন সফল হয়েছে!*\n\n『 GOMON ARMY 』অফিসিয়াল সোশ্যাল লিংক:\n\n• TikTok: https://www.tiktok.com/@gomon_hub\n• Facebook: https://www.facebook.com/gomonhub\n• Instagram: https://www.instagram.com/gomon_gamer\n• Threads: https://www.threads.net/@gomon_hub\n• YouTube: https://www.youtube.com/@gomonhub\n• 2nd Channel: https://www.youtube.com/@mrgomonhub"
   },
+  "mongo_uri": "mongodb+srv://gomongamer1_db_user:6Lm9wU_qVL%40Dz9j@cluster0.7cxwptw.mongodb.net/whatsapp_bot?retryWrites=true&w=majority",
   "gemini_api_key": "",
   "ai_model": "gemini-3.5-flash-lite"
 }

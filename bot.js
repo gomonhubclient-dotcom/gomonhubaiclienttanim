@@ -1,4 +1,5 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, initAuthCreds, BufferJSON, proto, DisconnectReason, fetchLatestBaileysVersion, Browsers, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { MongoClient } = require('mongodb');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const path = require('path');
@@ -41,8 +42,152 @@ let currentQrDataUrl = null;
 let isConnected = false;
 let currentPairingCode = null;
 
+// MongoDB Connection & Cloud Auth State References
+let mongoClient = null;
+let mongoDb = null;
+let mongoCollection = null;
+let currentAuthState = null;
+
+/**
+ * Connects to MongoDB Atlas cluster with automatic reconnection & pooling
+ */
+async function getMongoDBAuthCollection() {
+    const mongoUri = process.env.MONGO_URI || config.mongo_uri;
+    if (!mongoUri) return null;
+
+    if (!mongoClient) {
+        try {
+            console.log('🔄 [MONGODB] Connecting to MongoDB Atlas cluster for Baileys auth state...');
+            mongoClient = new MongoClient(mongoUri, {
+                serverSelectionTimeoutMS: 10000,
+                connectTimeoutMS: 10000
+            });
+            await mongoClient.connect();
+            mongoDb = mongoClient.db('whatsapp_bot');
+            mongoCollection = mongoDb.collection('auth_session');
+            console.log('✅ [MONGODB CONNECTED] Successfully connected to MongoDB Atlas (whatsapp_bot.auth_session)!');
+        } catch (err) {
+            console.error('❌ [MONGODB CONNECTION FAILED]:', err.message);
+            console.warn('⚠️ [MONGODB] Falling back to local MultiFileAuthState.');
+            mongoClient = null;
+            mongoDb = null;
+            mongoCollection = null;
+            return null;
+        }
+    }
+    return mongoCollection;
+}
+
+/**
+ * Custom MongoDB Auth State Adapter for Baileys
+ * Handles real-time synchronization of credentials, pre-keys, and user sessions.
+ * Automatically cleans up consumed one-time pre-keys.
+ */
+async function useMongoDBAuthState(collection) {
+    const writeData = async (data, id) => {
+        try {
+            return await collection.replaceOne(
+                { _id: id },
+                {
+                    _id: id,
+                    value: JSON.parse(JSON.stringify(data, BufferJSON.replacer)),
+                    updatedAt: new Date()
+                },
+                { upsert: true }
+            );
+        } catch (err) {
+            console.error(`⚠️ [MONGO AUTH WRITE ERROR] id: ${id}:`, err.message);
+        }
+    };
+
+    const readData = async (id) => {
+        try {
+            const doc = await collection.findOne({ _id: id });
+            if (!doc || !doc.value) return null;
+            return JSON.parse(JSON.stringify(doc.value), BufferJSON.reviver);
+        } catch (err) {
+            console.error(`⚠️ [MONGO AUTH READ ERROR] id: ${id}:`, err.message);
+            return null;
+        }
+    };
+
+    const removeData = async (id) => {
+        try {
+            await collection.deleteOne({ _id: id });
+        } catch (err) {
+            console.error(`⚠️ [MONGO AUTH DELETE ERROR] id: ${id}:`, err.message);
+        }
+    };
+
+    let creds = await readData('creds');
+    if (!creds) {
+        if (process.env.WHATSAPP_SESSION_DATA && !sessionInvalidated) {
+            try {
+                const input = process.env.WHATSAPP_SESSION_DATA.trim();
+                let jsonString = input.startsWith('{') && input.endsWith('}')
+                    ? input
+                    : Buffer.from(input, 'base64').toString('utf8');
+                creds = JSON.parse(jsonString, BufferJSON.reviver);
+                await writeData(creds, 'creds');
+                console.log('\n🔑 [MONGO PERMANENT SESSION SEEDED] Loaded credentials from WHATSAPP_SESSION_DATA env into MongoDB!\n');
+            } catch (e) {
+                console.error('[MONGO SESSION RESTORE ERROR] Could not decode WHATSAPP_SESSION_DATA:', e.message);
+                creds = initAuthCreds();
+            }
+        } else {
+            creds = initAuthCreds();
+        }
+    }
+
+    return {
+        state: {
+            creds,
+            keys: {
+                get: async (type, ids) => {
+                    const data = {};
+                    await Promise.all(
+                        ids.map(async (id) => {
+                            let value = await readData(`${type}-${id}`);
+                            if (type === 'app-state-sync-key' && value) {
+                                value = proto.Message.AppStateSyncKeyData.fromObject(value);
+                            }
+                            data[id] = value;
+                        })
+                    );
+                    return data;
+                },
+                set: async (data) => {
+                    const tasks = [];
+                    for (const category in data) {
+                        for (const id in data[category]) {
+                            const value = data[category][id];
+                            const key = `${category}-${id}`;
+                            // Instant cleanup: consumed one-time pre-keys have null value -> deleted immediately
+                            tasks.push(value ? writeData(value, key) : removeData(key));
+                        }
+                    }
+                    await Promise.all(tasks);
+                }
+            }
+        },
+        saveCreds: () => writeData(creds, 'creds'),
+        clearAuth: async () => {
+            try {
+                await collection.deleteMany({});
+                console.log('🗑️ [MONGO AUTH] Successfully cleared all session documents in MongoDB.');
+            } catch (e) {
+                console.error('⚠️ [MONGO AUTH CLEAR ERROR]:', e.message);
+            }
+        }
+    };
+}
+
 function getSessionKeyString() {
     try {
+        if (currentAuthState && currentAuthState.state && currentAuthState.state.creds) {
+            const raw = JSON.stringify(currentAuthState.state.creds, BufferJSON.replacer);
+            return Buffer.from(raw).toString('base64');
+        }
         const credsPath = path.join(__dirname, 'auth_session', 'creds.json');
         if (fs.existsSync(credsPath)) {
             const raw = fs.readFileSync(credsPath, 'utf8');
@@ -709,8 +854,23 @@ function queueMessageForSender(senderPhone, fn) {
 
 async function startWhatsAppBot() {
     const sessionDir = path.join(__dirname, 'auth_session');
-    restoreSessionFromEnv();
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const mongoCol = await getMongoDBAuthCollection();
+
+    let state, saveCreds;
+    if (mongoCol) {
+        console.log('📦 [AUTH ENGINE] Using MongoDB Persistent Cloud Auth State (Zero Bad MAC).');
+        currentAuthState = await useMongoDBAuthState(mongoCol);
+        state = currentAuthState.state;
+        saveCreds = currentAuthState.saveCreds;
+
+    } else {
+        console.log('📦 [AUTH ENGINE] Using Local MultiFileAuthState (auth_session).');
+        restoreSessionFromEnv();
+        currentAuthState = await useMultiFileAuthState(sessionDir);
+        state = currentAuthState.state;
+        saveCreds = currentAuthState.saveCreds;
+    }
+
     const { version, isLatest } = await fetchLatestBaileysVersion();
 
     console.log(`\n======================================================`);
@@ -756,6 +916,9 @@ async function startWhatsAppBot() {
             if (isLoggedOut) {
                 console.log('🗑️ [LOGGED OUT] Session was logged out. Clearing auth_session and restarting for fresh QR code...');
                 sessionInvalidated = true;
+                if (currentAuthState && currentAuthState.clearAuth) {
+                    await currentAuthState.clearAuth();
+                }
                 const sessionDir = path.join(__dirname, 'auth_session');
                 if (fs.existsSync(sessionDir)) {
                     try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (_) {}
@@ -1133,6 +1296,10 @@ const server = http.createServer(async (req, res) => {
             currentQr = null;
             currentQrDataUrl = null;
             currentPairingCode = null;
+
+            if (currentAuthState && currentAuthState.clearAuth) {
+                await currentAuthState.clearAuth();
+            }
 
             const sessionDir = path.join(__dirname, 'auth_session');
             if (fs.existsSync(sessionDir)) {
@@ -1829,3 +1996,28 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 startWhatsAppBot();
+
+// Graceful shutdown handler for Render deployments & process restarts
+// Prevents overlapping instances and eliminates Bad MAC errors during deploy
+async function handleGracefulShutdown(signal) {
+    console.log(`\n🛑 [SHUTDOWN] Received ${signal}. Gracefully disconnecting WhatsApp and closing resources...`);
+    try {
+        if (sock) {
+            try {
+                sock.end();
+                console.log('🔌 [WHATSAPP DISCONNECTED] Closed Baileys socket connection cleanly.');
+            } catch (_) {}
+        }
+        if (mongoClient) {
+            try {
+                await mongoClient.close();
+                console.log('📦 [MONGODB CLOSED] Closed MongoDB client connection cleanly.');
+            } catch (_) {}
+        }
+    } finally {
+        process.exit(0);
+    }
+}
+
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
