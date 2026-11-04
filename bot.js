@@ -173,6 +173,14 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
         return `আরে না ভাই! Mex Tanim Esports হলো জনপ্রিয় গেমার ও ক্রিয়েটর Tanim (Mex Tanim) ভাইয়ের অফিসিয়াল প্ল্যাটফর্ম। আমাদের ইউটিউব ও ফেসবুক পেজ ঘুরে দেখতে পারেন, শত শত প্লেয়ার নিয়মিত অংশ নিচ্ছে। কোনো ফেক বা স্ক্যামের সুযোগ নেই ভাই ❤️`;
     }
 
+    const asksTournament = /(?:tournament|slot|match|টুর্নামেন্ট|স্লট|ম্যাচ|খেলব|khelbo|khelte)/i.test(raw);
+    if (asksTournament) {
+        return `জি ভাই স্লট খালি আছে! আমাদের দুই টাইপের টুর্নামেন্ট চলতেছে:\n\n` +
+            `১. *আজকের ডেইলি টুর্নামেন্ট* (৬০৳, ৮৫৳, ৯০৳ ও ড্রোন ভিউ ১৩৫৳)\n` +
+            `২. *MTE International War S1* (১০,০০০৳ মেগা প্রাইজপুল - প্রো ও রাইজিং স্লট)\n\n` +
+            `আপনি কোনটা খেলতে চাচ্ছেন ভাই?`;
+    }
+
     if (asksPayment) {
         return `PAYMENT METHOD- SEND MONEY ONLY\n\nবিকাশ- 01611657757\nনগদ- 01611657757\nরকেট- 01611657757\n\nnotice\n\n> একবার স্লট কনফার্ম করলে, পরবর্তীতে সেই স্লট বাতিলযোগ্য না।\n\n> টাকা দেওয়ার পর প্রমান স্বরূপ Screenshot জমা দিবেন এবং নম্বরের লাস্ট ডিজিট বলবেন।\n\n> টাকা দেওয়ার পর নিজ দায়িত্বে কনর্ফাম গ্রুপের লিংক নিয়ে নিবেন, তা না হলে স্লট শেষ হয়ে গেলে আমরা দায়ী থাকবো না।\n\n> পেমেন্ট করতে দেরি হলে সেই সময়ের মধ্যে স্লট শেষ হয়ে গেলে পেমেন্ট ব্যাক দেওয়া হবে না, পরবর্তীতে যেকোনো সময়ে স্লট নিতে পারবেন।`;
     }
@@ -388,6 +396,52 @@ function getOrderedCandidateKeys() {
     return available.length > 0 ? available.concat(coolingDown) : coolingDown;
 }
 
+// Helper: Formats Current Bangladesh Real Time (Asia/Dhaka UTC+6)
+function getBangladeshTimeInfo() {
+    const now = new Date();
+    try {
+        const timeFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Dhaka',
+            hour12: true,
+            hour: 'numeric',
+            minute: 'numeric',
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric'
+        });
+        const hour24 = parseInt(new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Dhaka',
+            hour: 'numeric',
+            hour12: false
+        }).format(now), 10);
+        return {
+            formatted: timeFormatter.format(now),
+            hour24
+        };
+    } catch (_) {
+        return {
+            formatted: now.toLocaleString(),
+            hour24: now.getHours()
+        };
+    }
+}
+
+// Helper: Sends Automated Booking & Admin Support Alerts to Tanim's 'Message yourself' (8801611657757)
+async function notifyAdminSelf(alertText) {
+    if (!sock) return;
+    try {
+        const cleanBotPhone = (config.bot_phone_number || '8801611657757').replace(/\D/g, '');
+        let selfJid = `${cleanBotPhone}@s.whatsapp.net`;
+        if (sock.user && sock.user.id) {
+            selfJid = sock.user.id.replace(/:\d+@/, '@');
+        }
+        await sock.sendMessage(selfJid, { text: alertText });
+        console.log(`🔔 [ADMIN SELF-ALERT SENT] Successfully notified Admin (Tanim) in 'Message yourself'.`);
+    } catch (err) {
+        console.error(`⚠️ [ADMIN ALERT ERROR]: ${err.message}`);
+    }
+}
+
 // AI Customer Support Assistant Helper
 async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = null, mimeType = 'image/jpeg') {
     let knowledge = {};
@@ -410,6 +464,7 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
     const secondaryModel = (primaryModel === 'gemini-3.5-flash-lite') ? 'gemini-3.5-flash' : 'gemini-3.5-flash-lite';
 
     const mem = getChatMemory(senderPhone);
+    const bdTime = getBangladeshTimeInfo();
 
     if (candidateKeys.length === 0) {
         console.warn(`⚠️ [GEMINI] No API keys configured in GEMINI_API_KEYS or config.json. Using fallback.`);
@@ -426,7 +481,71 @@ PLATFORM IDENTITY & OWNER:
 - Platform: Mex Tanim Esports
 - Business / Person: Mex Tanim Esports
 - Owner: Tanim (Mex Tanim)
-- About: Mex Tanim Esports হলো জনপ্রিয় গেমার ও ক্রিয়েটর Tanim (Mex Tanim)-এর অফিসিয়াল গেমিং ও ই-স্পোর্টস প্ল্যাটফর্ম। এখানে রেগুলার গেমিং আপডেট, টুর্নামেন্ট ও কমিউনিটি আড্ডা হয়।
+- About: Mex Tanim Esports হলো জনপ্রিয় গেমার ও ক্রিয়েটর Tanim (Mex Tanim)-এর অফিসিয়াল গেমিং ও ই-স্পোর্টস প্ল্যাটফর্ম। এখানে রেগুলার গেমিং আপডেট, ডেইলি কাস্টম টুর্নামেন্ট ও মেগা টুর্নামেন্ট অনুষ্ঠিত হয়।
+
+CURRENT LIVE BANGLADESH REAL-TIME CLOCK:
+- Current Live BD Time: ${bdTime.formatted} (24-Hour Hour: ${bdTime.hour24})
+- TIME-AWARE RECOMMENDATION RULE: Use this current time to determine WHICH matches are UPCOMING for today/tonight! NEVER suggest or offer match times that have ALREADY PASSED earlier today!
+  • If before 3:00 PM: 3:00 PM Champion Rush (60৳), 4:00 PM Mini Blust (60৳), 5:00 PM Live (90৳), etc. are available.
+  • If afternoon (3:00 PM to 6:59 PM): Suggest upcoming matches: 7:00 PM Champion Rush (60৳), 8:00 PM Mini Blust (60৳), 9:00 PM Live (90৳) / Drone View (135৳), 10:00 PM & 11:00 PM.
+  • If evening (7:00 PM to 9:59 PM): Suggest upcoming: 8:00 PM Mini Blust (60৳), 9:00 PM Live (90৳) / Drone View (135৳), 10:00 PM Mini Blust (60৳), 11:00 PM Champion Rush (60৳) / Live (90৳), and 12 AM / 1 AM Special Blust (85৳).
+  • If night (10:00 PM onwards): Suggest 10:00 PM, 11:00 PM, and midnight 12:00 AM & 1:00 AM Special Blust (85৳ | PP 800৳).
+
+NATURAL HUMAN TOURNAMENT SUPPORT FLOW:
+1. When user asks for tournament/slot ("slot ache?", "match khelbo", "tournament lagbe", "khelte chai", "ajke match ase?"):
+   - Greet warmly and offer the choice like a helpful gamer brother:
+     "জি ভাই স্লট খালি আছে! আমাদের দুই টাইপের টুর্নামেন্ট চলতেছে:
+     ১. *আজকের ডেইলি টুর্নামেন্ট* (৬০৳, ৮৫৳, ৯০৳ ও ড্রোন ভিউ ১৩৫৳)
+     ২. *MTE International War S1* (১০,০০০৳ মেগা প্রাইজপুল - প্রো ও রাইজিং স্লট)
+     আপনি কোনটা খেলতে চাচ্ছেন ভাই?"
+2. If user chooses Daily Tournament ("daily match", "regular match", "ajker match", etc.):
+   - Ask for their view preference:
+     "ডেইলি ম্যাচে ড্রোন ভিউ (Drone View) খেলবেন নাকি নরমাল টুর্নামেন্ট ভাই?
+     আমাদের রাত ৯টা ও ১০টায় সিঙ্গাপুর সার্ভারে ১৩৫ টাকার Drone View ম্যাচ আছে (ফি ১৩৫৳ | প্রাইজ ৯০০৳, সিঙ্গাপুর সার্ভার, লাইভ ডেমো: https://www.youtube.com/live/kp520WEicJI)।
+     নাকি নরমাল ৬০/৮৫/৯০ টাকার টুর্নামেন্ট খেলবেন?"
+3. If user chooses Drone View:
+   - Provide Singapore server details, demo link, and ask whether they prefer the 9:00 PM or 10:00 PM slot.
+4. If user chooses Normal View:
+   - Based on Current Live BD Time, list the upcoming matches for today with Fee, Prize & Map count!
+   - Ask which match/time they wish to book.
+5. If user chooses MTE International War S1:
+   - Provide the complete mega event details clearly:
+     • Total Prizepool: ১০,০০০ টাকা
+     • Pro Slot (২৪ টিম): ২৮০ টাকা (Times: 3PM, 7PM, 9PM, 10PM)
+     • Rising Slot (৯৬ টিম): ১২০ টাকা (Times: 3PM, 7PM, 9PM, 10PM)
+     • Invited Teams: BDTOP1, MTS, NOVA KNIGHTS, NRS, PIRATE, RRR, TEAM 2XD, Team electro, TEAM INFINITY, THE JAWBREAKERS, VXC, X2 GLOBAL
+     • Note: এক টিম চাইলে একাধিক স্লট নিতে পারবে।
+   - Ask: "প্রো স্লট (২৮০৳) নাকি রাইজিং স্লট (১২০৳)—কোনটাতে স্লট বুক করবেন ভাই?"
+6. Once user selects a slot/match time:
+   - Immediately provide the exact Send Money details and notice:
+PAYMENT METHOD- SEND MONEY ONLY
+
+বিকাশ- 01611657757
+নগদ- 01611657757
+রকেট- 01611657757
+
+notice
+
+> একবার স্লট কনফার্ম করলে, পরবর্তীতে সেই স্লট বাতিলযোগ্য না।
+> টাকা দেওয়ার পর প্রমান স্বরূপ Screenshot জমা দিবেন এবং নম্বরের লাস্ট ডিজিট বলবেন।
+> টাকা দেওয়ার পর নিজ দায়িত্বে কনর্ফাম গ্রুপের লিংক নিয়ে নিবেন, তা না হলে স্লট শেষ হয়ে গেলে আমরা দায়ী থাকবো না।
+> পেমেন্ট করতে দেরি হলে সেই সময়ের মধ্যে স্লট শেষ হয়ে গেলে পেমেন্ট ব্যাক দেওয়া হবে না, পরবর্তীতে যেকোনো সময়ে স্লট নিতে পারবেন।
+
+7. SCREENSHOT & PAYMENT VERIFICATION BY VISION (VERY IMPORTANT):
+   - When user sends an image/screenshot (bKash/Nagad/Rocket payment receipt):
+     Examine the receipt using your vision:
+     • Check Receiver Number: Did they send money to 01611657757?
+     • Check Amount: Does the amount match the tournament slot fee (e.g. 60৳, 85৳, 90৳, 120৳, 135৳, 280৳)?
+     • Check Transaction Status: Is it a successful Send Money?
+     - IF IT MATCHES:
+       Confirm warmly and reassure them:
+       "স্ক্রিনশটটি পেয়েছি ভাই! আপনার পেমেন্ট কনফার্ম দেখা যাচ্ছে। স্লটটি প্রসেসিংয়ে নেওয়া হয়েছে... আমাদের অ্যাডমিন তানিম ভাই কিছুক্ষণের মধ্যেই বিকাশ স্টেটমেন্ট চেক করে আপনাকে কনফার্ম গ্রুপের লিংক ইনবক্সে দিয়ে দিচ্ছেন ভাই! একটু অপেক্ষা করুন ❤️"
+     - IF IT DOES NOT MATCH (wrong number, incorrect amount, blurred, or suspicious):
+       Politely inform: "ভাই স্ক্রিনশটে নম্বর বা টাকার পরিমাণ ম্যাচ করছে না, দয়া করে Mex Tanim Esports-এর নম্বরে (01611657757) সঠিক ফি পাঠিয়ে ফ্রেশ স্ক্রিনশট দিন ভাই।"
+
+8. DIRECT ADMIN COMMUNICATION REQUEST:
+   - If user asks to talk directly to Admin (Tanim) or wants to make payment directly to Admin:
+     Respond politely: "জি ভাই অবশ্যই! আমাদের প্রধান অ্যাডমিন তানিম ভাইকে আমি এখনই আপনার চ্যাটটি ফরোয়ার্ড করে নোটিফাই করে দিচ্ছি। উনি দ্রুতই আপনাকে সরাসরি মেসেজ দিচ্ছেন ভাই ❤️"
 
 DEVELOPER / CREATOR MODE & LEAD GENERATION (SALES PITCH TO CONVERT CLIENTS):
 - Developer / Bot Creator: GOMON HUB (Mr GOMON / @gomonhub).
@@ -455,28 +574,6 @@ NUMBERS & PHONE NUMBER HANDLING RULES:
 
 IDENTITY RULE (WHEN ASKED "tmi k?", "tumi ke?", "কে তুমি?", "tmr porichoy ki?"):
 - Answer EXACTLY in natural, clean Bengali: "আমি GOMON HUB-এর তৈরি করা সাপোর্ট এজেন্ট... তানিম ভাইয়ের সাপোর্ট অ্যাডমিন ভাই! Mex Tanim Esports-এর স্লট বুকিং, পেমেন্ট বা যেকোনো প্রয়োজনে কীভাবে সাহায্য করতে পারি বলেন?"
-
-PAYMENT & SLOT BOOKING RULES:
-- When anyone asks for payment method, bKash/Nagad/Rocket number, sending money, deposit, or how to book a slot:
-  Provide the EXACT PAYMENT METHOD & NOTICE formatted cleanly:
-
-PAYMENT METHOD- SEND MONEY ONLY
-
-বিকাশ- 01611657757
-নগদ- 01611657757
-রকেট- 01611657757
-
-notice
-
-> একবার স্লট কনফার্ম করলে, পরবর্তীতে সেই স্লট বাতিলযোগ্য না।
-> টাকা দেওয়ার পর প্রমান স্বরূপ Screenshot জমা দিবেন এবং নম্বরের লাস্ট ডিজিট বলবেন।
-> টাকা দেওয়ার পর নিজ দায়িত্বে কনর্ফাম গ্রুপের লিংক নিয়ে নিবেন, তা না হলে স্লট শেষ হয়ে গেলে আমরা দায়ী থাকবো না।
-> পেমেন্ট করতে দেরি হলে সেই সময়ের মধ্যে স্লট শেষ হয়ে গেলে পেমেন্ট ব্যাক দেওয়া হবে না, পরবর্তীতে যেকোনো সময়ে স্লট নিতে পারবেন।
-
-SCREENSHOTS & IMAGES:
-- If a user sends a screenshot (e.g. bKash/Nagad/Rocket payment receipt):
-  Check the picture, confirm receipt, and ask them for the last digit of their sending number:
-  "স্ক্রিনশট পেয়েছি ভাই! আপনি যে নম্বর থেকে টাকা পাঠিয়েছেন তার লাস্ট ডিজিট কত একটু জানান, আমি চেক করে কনফার্ম গ্রুপের লিংক দিয়ে দিচ্ছি ভাই।"
 
 MEX TANIM ESPORTS OFFICIAL LINKS:
 - YouTube: https://youtube.com/@mextanimesports
@@ -756,6 +853,37 @@ async function startWhatsAppBot() {
         if (isBotPaused) {
             console.log(`⏸️ [BOT PAUSED] Message from ${senderPhone} ignored because bot is switched OFF by Admin.`);
             return;
+        }
+
+        // Check if message requires Admin Alert (Payment Proof / Screenshot or Direct Admin Request)
+        const cleanCustomerPhone = senderPhone.replace(/\D/g, '');
+        const customerChatLink = `https://wa.me/${cleanCustomerPhone}`;
+
+        // 1. Payment Screenshot / Transaction Proof Alert to Tanim's 'Message yourself'
+        const isPaymentProof = !!imageBase64 || /(?:last\s*digit|লাস্ট\s*ডিজিট|trxid|ট্রানজ্যাকশন|বিকাশ\s*করছি|নগদ\s*করছি|টাকা\s*পাঠাইছি|টাকা\s*দিছি|টাকা\s*পাঠা|পেমেন্ট\s*করছি|payment\s*done|sent\s*money|পাঠাইসি|দিছি)/i.test(text);
+        if (isPaymentProof) {
+            const alertMsg = `🚨 *[নতুন পেমেন্ট / স্লট বুকিং অ্যালার্ট!]* 💰\n` +
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `👤 *কাস্টমার নম্বর:* +${cleanCustomerPhone}\n` +
+                `💬 *মেসেজ:* ${text || '[পেমেন্ট স্ক্রিনশট পাঠানো হয়েছে]'}\n` +
+                `📸 *স্ক্রিনশট আছে:* ${imageBase64 ? 'হ্যাঁ (Yes)' : 'না'}\n` +
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `👉 *কাস্টমারকে কনফার্ম গ্রুপের লিংক দিতে চ্যাটে ঢুকুন:*\n` +
+                `🔗 ${customerChatLink}`;
+            notifyAdminSelf(alertMsg).catch(() => {});
+        }
+
+        // 2. Direct Admin Contact / Payment Request Alert to Tanim's 'Message yourself'
+        const isDirectAdminReq = /(?:admin.*(?:kotha|call|number|direct|হ্যান্ডেল|কথা|নম্বর)|direct.*(?:admin|payment|kotha|টাকা|কথা|অ্যাডমিন)|তানিম.*(?:কথা|নম্বর|বলো|সাথে|direct))/i.test(text);
+        if (isDirectAdminReq && !isPaymentProof) {
+            const adminAlertMsg = `🔔 *[ডিরেক্ট অ্যাডমিন সাপোর্ট রিকোয়েস্ট!]* 👤\n` +
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `👤 *কাস্টমার নম্বর:* +${cleanCustomerPhone}\n` +
+                `💬 *মেসেজ:* "${text}"\n` +
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `👉 *সরাসরি কাস্টমারের সাথে কথা বলতে চ্যাটে ঢুকুন:*\n` +
+                `🔗 ${customerChatLink}`;
+            notifyAdminSelf(adminAlertMsg).catch(() => {});
         }
 
         // All incoming WhatsApp messages go directly to AI Support Agent
