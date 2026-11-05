@@ -1020,19 +1020,30 @@ async function startWhatsAppBot() {
 
         // Check if message requires Admin Alert (Payment Proof / Screenshot or Direct Admin Request)
         const cleanCustomerPhone = senderPhone.replace(/\D/g, '');
-        const customerChatLink = `https://wa.me/${cleanCustomerPhone}`;
+        const isLid = (senderJid || '').endsWith('@lid') || (cleanCustomerPhone.length >= 14 && !cleanCustomerPhone.startsWith('880'));
+        const customerDisplay = (msg.pushName || '').trim() || 'কাস্টমার';
+        const phoneDisplay = isLid ? 'গোপন রাখা (Hidden)' : `+${cleanCustomerPhone}`;
+        const chatLink = `https://wa.me/${cleanCustomerPhone}`;
+
+        const paymentActionGuide = isLid
+            ? `👉 *কাস্টমার নম্বর গোপন রেখেছে। চ্যাটটি পেতে WhatsApp সার্চবারে লিখুন:*\n🔍 *"${customerDisplay}"*`
+            : `👉 *কাস্টমারকে কনফার্ম গ্রুপের লিংক দিতে চ্যাটে ঢুকুন:*\n🔗 ${chatLink}`;
+
+        const adminActionGuide = isLid
+            ? `👉 *কাস্টমার নম্বর গোপন রেখেছে। সরাসরি কথা বলতে WhatsApp সার্চবারে লিখুন:*\n🔍 *"${customerDisplay}"*`
+            : `👉 *সরাসরি কাস্টমারের সাথে কথা বলতে চ্যাটে ঢুকুন:*\n🔗 ${chatLink}`;
 
         // 1. Payment Screenshot / Transaction Proof Alert to Tanim's 'Message yourself'
-        const isPaymentProof = !!imageBase64 || /(?:last\s*digit|লাস্ট\s*ডিজিট|trxid|ট্রানজ্যাকশন|বিকাশ\s*করছি|নগদ\s*করছি|টাকা\s*পাঠাইছি|টাকা\s*দিছি|টাকা\s*পাঠা|পেমেন্ট\s*করছি|payment\s*done|sent\s*money|পাঠাইসি|দিছি)/i.test(text);
+        const isPaymentProof = !!imageBase64 || /(?:last\s*digit|লাস্ট\s*ডিজিট|trxid|trx\s*id|ট্রানজ্যাকশন|বিকাশ|নগদ|রকেট|টাকা\s*(?:পাঠাইছি|দিছি|পাঠাইসি|দিলাম|দিচি|পাঠাব|পাঠানো|পাঠাইলাম)|পেমেন্ট\s*(?:করছি|দিছি|পাঠাইছি|done|ডান|হইছে)|payment\s*(?:done|sent|success)|sent\s*money|সেন্ড\s*মানি)/i.test(text);
         if (isPaymentProof) {
             const alertMsg = `🚨 *[নতুন পেমেন্ট / স্লট বুকিং অ্যালার্ট!]* 💰\n` +
                 `━━━━━━━━━━━━━━━━━━━\n` +
-                `👤 *কাস্টমার নম্বর:* +${cleanCustomerPhone}\n` +
+                `👤 *কাস্টমার:* ${customerDisplay}\n` +
+                `📱 *ফোন নম্বর:* ${phoneDisplay}\n` +
                 `💬 *মেসেজ:* ${text || '[পেমেন্ট স্ক্রিনশট পাঠানো হয়েছে]'}\n` +
                 `📸 *স্ক্রিনশট আছে:* ${imageBase64 ? 'হ্যাঁ (Yes)' : 'না'}\n` +
                 `━━━━━━━━━━━━━━━━━━━\n` +
-                `👉 *কাস্টমারকে কনফার্ম গ্রুপের লিংক দিতে চ্যাটে ঢুকুন:*\n` +
-                `🔗 ${customerChatLink}`;
+                paymentActionGuide;
             notifyAdminSelf(alertMsg).catch(() => {});
         }
 
@@ -1041,11 +1052,11 @@ async function startWhatsAppBot() {
         if (isDirectAdminReq && !isPaymentProof) {
             const adminAlertMsg = `🔔 *[ডিরেক্ট অ্যাডমিন সাপোর্ট রিকোয়েস্ট!]* 👤\n` +
                 `━━━━━━━━━━━━━━━━━━━\n` +
-                `👤 *কাস্টমার নম্বর:* +${cleanCustomerPhone}\n` +
+                `👤 *কাস্টমার:* ${customerDisplay}\n` +
+                `📱 *ফোন নম্বর:* ${phoneDisplay}\n` +
                 `💬 *মেসেজ:* "${text}"\n` +
                 `━━━━━━━━━━━━━━━━━━━\n` +
-                `👉 *সরাসরি কাস্টমারের সাথে কথা বলতে চ্যাটে ঢুকুন:*\n` +
-                `🔗 ${customerChatLink}`;
+                adminActionGuide;
             notifyAdminSelf(adminAlertMsg).catch(() => {});
         }
 
