@@ -271,7 +271,15 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
 
     const raw = (userMessage || '').trim().toLowerCase();
     const isSalam = /(?:সালাম|assalamu|salam|slm|আসসালামু)/i.test(raw);
-    const asksDeveloper = /(?:developer|kew banayse|ke banayse|ke toiri korse|maker|who made|koder|coder|owner of bot|bot car|bot kar|developer ke|developer er|banise ke|toiri kar|ডেভেলপার)/i.test(raw);
+    const asksDeveloper = /(?:developer|kew banayse|ke banayse|ke toiri korse|maker|who made|koder|coder|owner of bot|bot car|bot kar|developer ke|developer er|banise ke|toiri kar|ডেভেলপার|gomon hub|gomonhub|গোমন হাব)/i.test(raw);
+    const asksBazi = /(?:bazi.*(?:khela|khelar|mane|kivave|kemon|kemne|dhore)|বাজি.*(?:খেলা|মানে|কেমনে|কীভাবে|ধরে|কাস্টম)|kivave.*bazi|কেমনে.*বাজি|bazi.*mane|বাজি.*mane|bazi.*dhore)/i.test(raw);
+    const asksGomonTournament = /(?:gomon.*(?:tournament|website|site|ওয়েবসাইট|টুর্নামেন্ট|সাইট)|(?:tournament|website|site|ওয়েবসাইট|টুর্নামেন্ট|সাইট).*gomon|gomon hub er kichu nai|gomon er kichu nai|tournament gomon)/i.test(raw);
+    const asksGomonFb = /(?:gomon|গোমন).*(?:fb|facebook|ফেসবুক)/i.test(raw);
+    const asksGomonYt = /(?:gomon|গোমন).*(?:yt|youtube|ইউটিউব)/i.test(raw);
+    const asksGomonTiktok = /(?:gomon|গোমন).*(?:tiktok|টিকটক)/i.test(raw);
+    const asksGomonInsta = /(?:gomon|গোমন).*(?:insta|instagram|ইন্সটা|ইনস্টাগ্রাম)/i.test(raw);
+    const asksGomonAllSocial = /(?:gomon|গোমন).*(?:all|sob|shob|সব|সোশ্যাল|social|লিংক|link)/i.test(raw);
+
     const asksFb = /(?:facebook|fb page|fb|ফেসবুক)/i.test(raw);
     const asksYt = /(?:youtube|yt channel|yt|ইউটিউব|ইউটিউবের)/i.test(raw);
     const asksTiktok = /(?:tiktok|টিকটক)/i.test(raw);
@@ -295,14 +303,55 @@ function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null
 
     if (mem) mem.greeted = true;
 
-    // Developer inquiry mode (Professional Sales Pitch & Lead Generation)
+    // GOMON HUB Bazi / Custom Match explanation
+    if (asksBazi) {
+        return `মানে একদম সিম্পল ভাই! আপনারা ফ্রেন্ডরা বা অপোনেন্টের সাথে নিজেদের ইচ্ছামতো টাকা ধরে ১v১ বা স্কোয়াড কাস্টম চ্যালেঞ্জ খেলতে পারবেন।\n\n` +
+            `নরমালি কী হয়? বাজি খেলে জিতলে অনেক সময় অপোনেন্ট টাকা না দিয়ে ব্লক মেরে ভেগে যায়, তাই না? 😂 কিন্তু এই ওয়েবসাইটে সেই বাটপারি বা স্ক্যামের কোনো সুযোগই নাই!\n\n` +
+            `আপনি কত টাকার ম্যাচ খেলবেন (যেমন ৫০৳ বা ১০০৳) সেটা সেট করে ম্যাচ বানিয়ে রাখবেন। অপোনেন্টও সেই টাকা ডিপোজিট করে আপনার ম্যাচে ঢুকবে। খেলা শেষে যে জিতবে, ওয়েবসাইটের সিস্টেম অটোমেটিক পুরো প্রাইজমানি তার অ্যাকাউন্টে পাঠিয়ে দেবে! কোনো চিটিং বা টাকা মারার ভয়ই নেই ভাই।\n\n` +
+            `Chrome-এ ‘GOMON HUB TOURNAMENT’ লিখে বা লিংকে গিয়ে নিজেই দেখে আসতে পারেন: https://rb.gy/feuqry ❤️`;
+    }
+
+    // GOMON HUB Specific Social Media Queries
+    if (asksGomonAllSocial) {
+        return `এই যে ভাই GOMON HUB-এর অফিসিয়াল সব সোশ্যাল মিডিয়া ও প্ল্যাটফর্মের লিংক:\n\n` +
+            `🎮 Tournament Site: https://rb.gy/feuqry (Chrome-এ ‘GOMON HUB TOURNAMENT’ লিখেও পাবেন)\n` +
+            `📺 YouTube: https://www.youtube.com/@gomonhub\n` +
+            `📺 2nd Channel: https://www.youtube.com/@mrgomonhub\n` +
+            `🌐 Facebook: https://www.facebook.com/gomonhub\n` +
+            `🎵 TikTok: https://www.tiktok.com/@gomon_hub\n` +
+            `📸 Instagram: https://www.instagram.com/gomon_gamer\n` +
+            `🧵 Threads: https://www.threads.net/@gomon_hub\n\n` +
+            `যেকোনো প্রয়োজনে যুক্ত থাকতে পারেন ভাই ❤️`;
+    }
+    if (asksGomonYt) {
+        return `এই যে ভাই GOMON HUB-এর অফিসিয়াল ইউটিউব চ্যানেল:\nMain Channel: https://www.youtube.com/@gomonhub\n2nd Channel: https://www.youtube.com/@mrgomonhub`;
+    }
+    if (asksGomonFb) {
+        return `এই যে ভাই GOMON HUB-এর অফিসিয়াল ফেসবুক পেজ:\nhttps://www.facebook.com/gomonhub`;
+    }
+    if (asksGomonTiktok) {
+        return `এই যে ভাই GOMON HUB-এর অফিসিয়াল টিকটক আইডি:\nhttps://www.tiktok.com/@gomon_hub`;
+    }
+    if (asksGomonInsta) {
+        return `এই যে ভাই GOMON HUB-এর অফিসিয়াল ইন্সটাগ্রাম আইডি:\nhttps://www.instagram.com/gomon_gamer`;
+    }
+
+    // GOMON HUB Tournament Website direct inquiry
+    if (asksGomonTournament) {
+        return `আরে ভাই GOMON HUB-এর একটা অস্থির ফ্রি ফায়ার টুর্নামেন্ট ওয়েবসাইট আছে! Chrome-এ ‘GOMON HUB TOURNAMENT’ লিখে সার্চ দিলেই পেয়ে যাবেন (বা সরাসরি লিংক: https://rb.gy/feuqry) 🎮\n\n` +
+            `সাইটটা একদম সেই লেভেলের ভাই! নিজেদের ইচ্ছামতো বাজি ধরে ১v১ বা স্কোয়াড কাস্টম ম্যাচ বানিয়ে ফ্রেন্ডদের সাথে খেলা যায়, ব্যালেন্স অ্যাড ও উইথড্র পুরো অটো। আর সবচেয়ে জোস বিষয় হলো রেফার করলে প্রতি ফ্রেন্ডে ৫ টাকা বোনাস পাওয়া যায়! হ্যাকার বা স্ক্যামের কোনো চান্সই নাই, ফুল সেফ ২-স্টেপ ভেরিফিকেশন দেওয়া। এমনকি সামনে সম্পূর্ণ ফ্রিতেও টুর্নামেন্ট আনবে ভাই! একবার ঢুকে দেখতে পারেন ❤️`;
+    }
+
+    // Developer inquiry mode (Friendly GOMON HUB pitch + Free Fire tournament website + WhatsApp bot policy)
     if (asksDeveloper) {
         return `এই বটটি ডেভেলপ করেছে GOMON HUB (Mr GOMON ভাই)! 🎮\n\n` +
-            `আপনিও কি আপনার নিজস্ব গেমিং কমিউনিটি, পেজ বা বিজনেসের জন্য এরকম ২৪/৭ অটোমেটেড AI সাপোর্ট বট কিংবা প্রফেশনাল টুর্নামেন্ট ওয়েবসাইট বানিয়ে নিতে চান?\n\n` +
-            `চাইলে খুব সহজেই সরাসরি ডেভেলপারের সাথে যোগাযোগ করতে পারেন:\n` +
+            `উনাদের নিজস্ব দারুণ একটি ফ্রি ফায়ার টুর্নামেন্ট ওয়েবসাইটও রয়েছে: https://rb.gy/feuqry (Chrome-এ 'GOMON HUB TOURNAMENT' লিখেও পাবেন) 🔥 যেখানে নিজেদের ইচ্ছামতো বাজি ধরে ১v১ বা স্কোয়াড কাস্টম খেলা যায় এবং প্রতি রেফারে ৫ টাকা বোনাস পাওয়া যায়!\n\n` +
+            `পাশাপাশি আপনিও কি আপনার নিজস্ব যেকোনো ধরণের বিজনেস, অনলাইন শপ, ফেসবুক পেজ কিংবা গেমিং কমিউনিটির জন্য এমন ২৪/৭ অটোমেটেড হোয়াটসঅ্যাপ AI বট কিংবা প্রফেশনাল ওয়েবসাইট বানিয়ে নিতে চান?\n\n` +
+            `হোয়াটসঅ্যাপ বটের ক্ষেত্রে আমাদের নিয়ম একদম ক্লিয়ার ভাই—আগে কাজ, কাজ দেখে পছন্দ হলে পরে টাকা!\n\n` +
+            `সরাসরি যোগাযোগ করতে পারেন:\n` +
             `📧 Email: gomonhub@gmail.com\n` +
             `💬 WhatsApp: 01349966049\n` +
-            `⚠️ (দয়া করে ইমেইলে যোগাযোগ করুন অথবা হোয়াটসঅ্যাপে শুধু মেসেজ দিন, সরাসরি কল না দেওয়ার অনুরোধ রইল ভাই)`;
+            `⚠️ (দয়া করে হোয়াটসঅ্যাপে শুধু মেসেজ দিন, সরাসরি কল না দেওয়ার অনুরোধ রইল ভাই)`;
     }
 
     // Identity inquiry
@@ -692,23 +741,36 @@ notice
    - If user asks to talk directly to Admin (Tanim) or wants to make payment directly to Admin:
      Respond politely: "জি ভাই অবশ্যই! আমাদের প্রধান অ্যাডমিন তানিম ভাইকে আমি এখনই আপনার চ্যাটটি ফরোয়ার্ড করে নোটিফাই করে দিচ্ছি। উনি দ্রুতই আপনাকে সরাসরি মেসেজ দিচ্ছেন ভাই ❤️"
 
-DEVELOPER / CREATOR MODE & LEAD GENERATION (SALES PITCH TO CONVERT CLIENTS):
+DEVELOPER / CREATOR MODE & GOMON HUB RULES:
 - Developer / Bot Creator: GOMON HUB (Mr GOMON / @gomonhub).
-- If anyone asks about who made this bot, developer ke, maker, or who coded this:
-  Answer with pride, high professionalism, and a persuasive sales pitch to convert them into a paying client:
+- CRITICAL TRUTH RULE: GOMON HUB-এর নিজস্ব অফিসিয়াল ফ্রি ফায়ার টুর্নামেন্ট ওয়েবসাইট রয়েছে! NEVER say "GOMON HUB-এর কোনো টুর্নামেন্ট নেই"!
+- Free Fire Tournament Website: https://rb.gy/feuqry (Chrome-এ ‘GOMON HUB TOURNAMENT’ লিখে সার্চ করলেও সরাসরি পাওয়া যায়)।
+- WEBSITE FEATURES & HIGHLIGHTS:
+  • ফ্রেন্ড বা অপোনেন্টের সাথে ইচ্ছামতো বাজি ধরে ১v১ বা স্কোয়াড কাস্টম ম্যাচ বানিয়ে খেলা যায় (টাকা মেরে ব্লক দিয়ে ভেগে যাওয়ার কোনো সুযোগ নেই, জয়ীর অ্যাকাউন্টে প্রাইজ অটো যুক্ত হয়)।
+  • প্রতি রেফারে ৫ টাকা ইনস্ট্যান্ট বোনাস এবং প্রতিটি প্লেয়ারের আলাদা ইউনিক প্রমোকোড (যত খুশি রেফার করা যায়)।
+  • ২-স্টেপ ভেরিফিকেশন, হ্যাকার প্রিভেন্ট রিভিউ, কারো আইডি হ্যাক বা জোরপূর্বক উইথড্র নেওয়ার কোনো সুযোগ নেই।
+  • সম্পূর্ণ অটো ব্যালেন্স ও উইথড্র ভেরিফিকেশন সিস্টেম।
+  • নিজস্ব ২৪/৭ এআই ও সরাসরি হোয়াটসঅ্যাপ সাপোর্ট (নো টেলিগ্রাম ঝামেলা)।
+  • খুব শীঘ্রই সম্পূর্ণ ফ্রি টুর্নামেন্ট সুবিধাও চালু হচ্ছে!
+- BAZI MATCH EXPLANATION (IF ASKED "bazi khela jay mane?", "kemne bazi khela jay?"):
+  Answer in natural, casual gamer terms without herbal advertising:
+  "মানে একদম সিম্পল ভাই! আপনারা ফ্রেন্ডরা বা অপোনেন্টের সাথে নিজেদের ইচ্ছামতো টাকা ধরে ১v১ বা স্কোয়াড কাস্টম চ্যালেঞ্জ খেলতে পারবেন।
+  নরমালি কী হয়? বাজি খেলে জিতলে অনেক সময় অপোনেন্ট টাকা না দিয়ে ব্লক মেরে ভেগে যায়, তাই না? 😂 কিন্তু এই ওয়েবসাইটে সেই বাটপারি বা স্ক্যামের কোনো সুযোগই নাই!
+  আপনি কত টাকার ম্যাচ খেলবেন (যেমন ৫০৳ বা ১০০৳) সেটা সেট করে ম্যাচ বানিয়ে রাখবেন। অপোনেন্টও সেই টাকা ডিপোজিট করে আপনার ম্যাচে ঢুকবে। খেলা শেষে যে জিতবে, ওয়েবসাইটের সিস্টেম অটোমেটিক পুরো প্রাইজমানি তার অ্যাকাউন্টে পাঠিয়ে দেবে! কোনো চিটিং বা টাকা মারার ভয়ই নেই ভাই।
+  Chrome-এ ‘GOMON HUB TOURNAMENT’ লিখে বা লিংকে গিয়ে নিজেই দেখে আসতে পারেন: https://rb.gy/feuqry ❤️"
+- WHATSAPP BOT SYSTEM DEVELOPMENT OFFER:
+  If anyone asks about who made this bot, developer ke, maker, or asks to build an AI bot:
   "এই বটটি ডেভেলপ করেছে GOMON HUB (Mr GOMON ভাই)! 🎮
-
-আপনিও কি আপনার নিজস্ব গেমিং কমিউনিটি, পেজ বা বিজনেসের জন্য এরকম ২৪/৭ অটোমেটেড AI সাপোর্ট বট কিংবা প্রফেশনাল টুর্নামেন্ট ওয়েবসাইট বানিয়ে নিতে চান?
-
-চাইলে খুব সহজেই সরাসরি ডেভেলপারের সাথে যোগাযোগ করতে পারেন:
-📧 Email: gomonhub@gmail.com
-💬 WhatsApp: 01349966049
-⚠️ (দয়া করে ইমেইলে যোগাযোগ করুন অথবা হোয়াটসঅ্যাপে শুধু মেসেজ দিন, সরাসরি কল না দেওয়ার অনুরোধ রইল ভাই)"
-
-- PROGRESSIVE LINK RULE: NEVER dump all links at once! ONLY if the user specifically asks for developer website, portfolio, or YouTube link:
-  • Tournament Website: https://rb.gy/feuqry
-  • YouTube: https://www.youtube.com/@gomonhub
-  • Facebook: https://www.facebook.com/gomonhub
+  উনাদের নিজস্ব দারুণ একটি ফ্রি ফায়ার টুর্নামেন্ট ওয়েবসাইটও রয়েছে: https://rb.gy/feuqry (Chrome-এ 'GOMON HUB TOURNAMENT' লিখেও পাবেন) 🔥 যেখানে নিজেদের ইচ্ছামতো বাজি ধরে ১v১ বা স্কোয়াড কাস্টম খেলা যায় এবং প্রতি রেফারে ৫ টাকা বোনাস পাওয়া যায়!
+  পাশাপাশি আপনিও কি আপনার নিজস্ব যেকোনো ধরণের বিজনেস, অনলাইন শপ, ফেসবুক পেজ কিংবা গেমিং কমিউনিটির জন্য এমন ২৪/৭ অটোমেটেড হোয়াটসঅ্যাপ AI বট কিংবা প্রফেশনাল ওয়েবসাইট বানিয়ে নিতে চান?
+  হোয়াটসঅ্যাপ বটের ক্ষেত্রে আমাদের নিয়ম একদম ক্লিয়ার ভাই—আগে কাজ, কাজ দেখে পছন্দ হলে পরে টাকা!
+  সরাসরি যোগাযোগ করতে পারেন: 💬 WhatsApp: 01349966049"
+- GOMON HUB SOCIAL MEDIA HANDLING:
+  • If asked for GOMON HUB YouTube: Share https://www.youtube.com/@gomonhub (2nd channel: https://www.youtube.com/@mrgomonhub)
+  • If asked for GOMON HUB Facebook: Share https://www.facebook.com/gomonhub
+  • If asked for GOMON HUB TikTok: Share https://www.tiktok.com/@gomon_hub
+  • If asked for GOMON HUB Instagram: Share https://www.instagram.com/gomon_gamer
+  • If asked for ALL GOMON HUB links: List Tournament Site (https://rb.gy/feuqry), YouTube, Facebook, TikTok, Instagram, Threads cleanly.
 
 NUMBERS & PHONE NUMBER HANDLING RULES:
 - If user asks about or sends "01611657757": State that this is Mex Tanim Esports's official Send Money number for bKash, Nagad, and Rocket to book slots.
