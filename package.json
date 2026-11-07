@@ -13,6 +13,7 @@
     "@whiskeysockets/baileys": "^6.6.0",
     "axios": "^1.7.9",
     "mongodb": "^7.8.0",
+    "node-cache": "^5.1.2",
     "pino": "^9.6.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"

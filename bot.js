@@ -1,5 +1,6 @@
-const { default: makeWASocket, useMultiFileAuthState, initAuthCreds, BufferJSON, proto, DisconnectReason, fetchLatestBaileysVersion, Browsers, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, initAuthCreds, BufferJSON, proto, DisconnectReason, fetchLatestBaileysVersion, Browsers, downloadMediaMessage, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const { MongoClient } = require('mongodb');
+const NodeCache = require('node-cache');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const path = require('path');
@@ -139,34 +140,79 @@ async function useMongoDBAuthState(collection) {
         }
     }
 
+    // Auto-heal: Clear stale peer session ratchets on boot so broken Signal ciphers (Bad MAC) auto-regenerate
+    // Note: 'creds' and device pairing are strictly preserved so the bot stays connected to the linked phone!
+    try {
+        const staleSessions = await collection.deleteMany({ _id: /^session-/ });
+        if (staleSessions.deletedCount > 0) {
+            console.log(`🧹 [AUTO-HEAL] Cleared ${staleSessions.deletedCount} stale peer session ratchets. Phone link preserved!`);
+        }
+    } catch (e) {
+        console.warn('⚠️ [AUTO-HEAL WARNING] Could not clear stale sessions:', e.message);
+    }
+
     return {
         state: {
             creds,
             keys: {
                 get: async (type, ids) => {
                     const data = {};
-                    await Promise.all(
-                        ids.map(async (id) => {
-                            let value = await readData(`${type}-${id}`);
-                            if (type === 'app-state-sync-key' && value) {
-                                value = proto.Message.AppStateSyncKeyData.fromObject(value);
+                    if (!ids || ids.length === 0) return data;
+                    try {
+                        const mongoIds = ids.map(id => `${type}-${id}`);
+                        const docs = await collection.find({ _id: { $in: mongoIds } }).toArray();
+                        const docMap = new Map();
+                        for (const doc of docs) {
+                            if (doc && doc.value) {
+                                let val = JSON.parse(JSON.stringify(doc.value), BufferJSON.reviver);
+                                if (type === 'app-state-sync-key' && val) {
+                                    val = proto.Message.AppStateSyncKeyData.fromObject(val);
+                                }
+                                docMap.set(doc._id, val);
                             }
-                            data[id] = value;
-                        })
-                    );
+                        }
+                        for (const id of ids) {
+                            data[id] = docMap.get(`${type}-${id}`) || null;
+                        }
+                    } catch (err) {
+                        console.error(`⚠️ [MONGO AUTH BATCH READ ERROR] type: ${type}:`, err.message);
+                    }
                     return data;
                 },
                 set: async (data) => {
-                    const tasks = [];
+                    const writes = [];
                     for (const category in data) {
                         for (const id in data[category]) {
                             const value = data[category][id];
                             const key = `${category}-${id}`;
-                            // Instant cleanup: consumed one-time pre-keys have null value -> deleted immediately
-                            tasks.push(value ? writeData(value, key) : removeData(key));
+                            if (value) {
+                                writes.push({
+                                    replaceOne: {
+                                        filter: { _id: key },
+                                        replacement: {
+                                            _id: key,
+                                            value: JSON.parse(JSON.stringify(value, BufferJSON.replacer)),
+                                            updatedAt: new Date()
+                                        },
+                                        upsert: true
+                                    }
+                                });
+                            } else {
+                                writes.push({
+                                    deleteOne: {
+                                        filter: { _id: key }
+                                    }
+                                });
+                            }
                         }
                     }
-                    await Promise.all(tasks);
+                    if (writes.length > 0) {
+                        try {
+                            await collection.bulkWrite(writes, { ordered: false });
+                        } catch (err) {
+                            console.error(`⚠️ [MONGO AUTH BULK WRITE ERROR]:`, err.message);
+                        }
+                    }
                 }
             }
         },
@@ -941,16 +987,41 @@ async function startWhatsAppBot() {
     console.log(`🌐 Live Player Simulation Web Portal: http://localhost:3000`);
     console.log(`======================================================\n`);
 
+    const pinoLogger = pino({ level: 'silent' });
+    const msgRetryCounterCache = new NodeCache({ stdTTL: 300, maxKeys: 3000 });
+    const msgCache = new NodeCache({ stdTTL: 300, maxKeys: 3000 });
+
     sock = makeWASocket({
         version,
-        auth: state,
-        logger: pino({ level: 'silent' }),
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pinoLogger)
+        },
+        logger: pinoLogger,
         printQRInTerminal: false,
         syncFullHistory: false,
         markOnlineOnConnect: true,
+        msgRetryCounterCache,
+        getMessage: async (key) => {
+            if (key?.id) {
+                const cached = msgCache.get(key.id);
+                if (cached) return cached;
+            }
+            return proto.Message.fromObject({});
+        },
         shouldIgnoreJid: (jid) => (jid || '').endsWith('@g.us') || (jid || '').endsWith('@broadcast'),
         browser: Browsers.ubuntu('Chrome')
     });
+
+    // Auto-cache all outgoing messages so WhatsApp retry requests succeed seamlessly
+    const rawSendMessage = sock.sendMessage.bind(sock);
+    sock.sendMessage = async (...args) => {
+        const result = await rawSendMessage(...args);
+        if (result?.key?.id && result?.message) {
+            msgCache.set(result.key.id, result.message);
+        }
+        return result;
+    };
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -1200,6 +1271,10 @@ async function startWhatsAppBot() {
         if (!messages || messages.length === 0) return;
         for (const msg of messages) {
             if (!msg || !msg.message || msg.key.remoteJid === 'status@broadcast') continue;
+            // Cache received message in memory for retry requests
+            if (msg.key?.id && msg.message) {
+                msgCache.set(msg.key.id, msg.message);
+            }
             // Ignore group messages at the root so they never hit session ciphers
             if ((msg.key.remoteJid || '').endsWith('@g.us')) continue;
 
