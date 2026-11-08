@@ -140,16 +140,7 @@ async function useMongoDBAuthState(collection) {
         }
     }
 
-    // Auto-heal: Clear stale peer session ratchets on boot so broken Signal ciphers (Bad MAC) auto-regenerate
-    // Note: 'creds' and device pairing are strictly preserved so the bot stays connected to the linked phone!
-    try {
-        const staleSessions = await collection.deleteMany({ _id: /^session-/ });
-        if (staleSessions.deletedCount > 0) {
-            console.log(`🧹 [AUTO-HEAL] Cleared ${staleSessions.deletedCount} stale peer session ratchets. Phone link preserved!`);
-        }
-    } catch (e) {
-        console.warn('⚠️ [AUTO-HEAL WARNING] Could not clear stale sessions:', e.message);
-    }
+
 
     return {
         state: {
@@ -2169,3 +2160,11 @@ async function handleGracefulShutdown(signal) {
 
 process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
+
+process.on('uncaughtException', (err) => {
+    console.error('⚠️ [SAFE UNCAUGHT EXCEPTION]:', err?.message || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('⚠️ [SAFE UNHANDLED REJECTION]:', reason?.message || reason);
+});
