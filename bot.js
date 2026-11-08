@@ -33,6 +33,24 @@ if (fs.existsSync(configPath)) {
     }
 }
 
+// Session isolation helpers
+function getSessionName() {
+    if (process.env.SESSION_NAME && process.env.SESSION_NAME.trim()) {
+        return process.env.SESSION_NAME.trim();
+    }
+    if (config.session_name && config.session_name.trim()) {
+        return config.session_name.trim();
+    }
+    const cleanClient = (config.client_id || config.platform_name || config.owner_name || config.bot_phone_number || 'mex_tanim')
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_');
+    return `session_${cleanClient}`;
+}
+
+function getSessionDir() {
+    return path.join(__dirname, getSessionName());
+}
+
 // In-memory verification sessions
 // sessionToken -> { phone, code, verified: false, expiresAt, senderPhone }
 const pendingSessions = {};
@@ -58,18 +76,20 @@ async function getMongoDBAuthCollection() {
 
     if (!mongoClient) {
         try {
-            console.log('🔄 [MONGODB] Connecting to MongoDB Atlas cluster for Baileys auth state...');
+            const dbName = process.env.MONGO_DB_NAME || config.mongo_db_name || 'whatsapp_bot';
+            const collectionName = getSessionName();
+            console.log(`🔄 [MONGODB] Connecting to MongoDB Atlas cluster for Baileys auth state (${dbName}.${collectionName})...`);
             mongoClient = new MongoClient(mongoUri, {
                 serverSelectionTimeoutMS: 10000,
                 connectTimeoutMS: 10000
             });
             await mongoClient.connect();
-            mongoDb = mongoClient.db('whatsapp_bot');
-            mongoCollection = mongoDb.collection('auth_session');
-            console.log('✅ [MONGODB CONNECTED] Successfully connected to MongoDB Atlas (whatsapp_bot.auth_session)!');
+            mongoDb = mongoClient.db(dbName);
+            mongoCollection = mongoDb.collection(collectionName);
+            console.log(`✅ [MONGODB CONNECTED] Successfully connected to MongoDB Atlas (${dbName}.${collectionName})!`);
         } catch (err) {
             console.error('❌ [MONGODB CONNECTION FAILED]:', err.message);
-            console.warn('⚠️ [MONGODB] Falling back to local MultiFileAuthState.');
+            console.warn(`⚠️ [MONGODB] Falling back to local MultiFileAuthState (${getSessionName()}).`);
             mongoClient = null;
             mongoDb = null;
             mongoCollection = null;
@@ -225,7 +245,7 @@ function getSessionKeyString() {
             const raw = JSON.stringify(currentAuthState.state.creds, BufferJSON.replacer);
             return Buffer.from(raw).toString('base64');
         }
-        const credsPath = path.join(__dirname, 'auth_session', 'creds.json');
+        const credsPath = path.join(getSessionDir(), 'creds.json');
         if (fs.existsSync(credsPath)) {
             const raw = fs.readFileSync(credsPath, 'utf8');
             return Buffer.from(raw).toString('base64');
@@ -241,7 +261,7 @@ function restoreSessionFromEnv() {
         console.warn('⚠️ [SESSION RESTORE SKIPPED] Session was invalidated/logged out. Generating fresh QR code.');
         return;
     }
-    const sessionDir = path.join(__dirname, 'auth_session');
+    const sessionDir = getSessionDir();
     if (!fs.existsSync(sessionDir)) {
         fs.mkdirSync(sessionDir, { recursive: true });
     }
@@ -966,19 +986,37 @@ function queueMessageForSender(senderPhone, fn) {
     return nextPromise;
 }
 
+let reconnectTimeout = null;
+
 async function startWhatsAppBot() {
-    const sessionDir = path.join(__dirname, 'auth_session');
+    if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+    }
+
+    // Eradicate ghost sockets and Bad MAC by cleaning up previous active socket
+    if (sock) {
+        console.log('🧹 [SOCKET CLEANUP] Gracefully closing existing WhatsApp socket to prevent ghost sessions & Bad MAC...');
+        try {
+            sock.ev.removeAllListeners();
+            sock.end(undefined);
+        } catch (_) { }
+        sock = null;
+    }
+
+    const sessionDir = getSessionDir();
+    const sessionName = getSessionName();
     const mongoCol = await getMongoDBAuthCollection();
 
     let state, saveCreds;
     if (mongoCol) {
-        console.log('📦 [AUTH ENGINE] Using MongoDB Persistent Cloud Auth State (Zero Bad MAC).');
+        console.log(`📦 [AUTH ENGINE] Using MongoDB Persistent Cloud Auth State (${sessionName}).`);
         currentAuthState = await useMongoDBAuthState(mongoCol);
         state = currentAuthState.state;
         saveCreds = currentAuthState.saveCreds;
 
     } else {
-        console.log('📦 [AUTH ENGINE] Using Local MultiFileAuthState (auth_session).');
+        console.log(`📦 [AUTH ENGINE] Using Local MultiFileAuthState (${sessionName}).`);
         restoreSessionFromEnv();
         currentAuthState = await useMultiFileAuthState(sessionDir);
         state = currentAuthState.state;
@@ -990,12 +1028,13 @@ async function startWhatsAppBot() {
     console.log(`\n======================================================`);
     console.log(`🤖 GOMONHUB WhatsApp OTP & Auto-Reply Bot starting...`);
     console.log(`📦 Using Baileys version: ${version.join('.')}, isLatest: ${isLatest}`);
-    console.log(`🌐 Live Player Simulation Web Portal: http://localhost:3000`);
+    console.log(`🌐 Live Player Simulation Web Portal: http://localhost:${PORT}`);
     console.log(`======================================================\n`);
 
     const pinoLogger = pino({ level: 'silent' });
-    const msgRetryCounterCache = new NodeCache({ stdTTL: 300, maxKeys: 3000 });
-    const msgCache = new NodeCache({ stdTTL: 300, maxKeys: 3000 });
+    // Ultra-optimized lightweight cache for Render 512MB RAM (Prevents OOM Crashes under 2 msgs/sec load)
+    const msgRetryCounterCache = new NodeCache({ stdTTL: 60, maxKeys: 400 });
+    const msgCache = new NodeCache({ stdTTL: 60, maxKeys: 400 });
 
     sock = makeWASocket({
         version,
@@ -1052,25 +1091,40 @@ async function startWhatsAppBot() {
             const isLoggedOut = (statusCode === DisconnectReason.loggedOut);
             console.log(`\n⚠️ Connection closed: ${lastDisconnect?.error?.message || 'Unknown'}. Logged out: ${isLoggedOut}`);
 
+            // Ensure previous socket is closed cleanly to stop Bad MAC
+            if (sock) {
+                try {
+                    sock.ev.removeAllListeners();
+                    sock.end(undefined);
+                } catch (_) { }
+                sock = null;
+            }
+
             if (isLoggedOut) {
-                console.log('🗑️ [LOGGED OUT] Session was logged out. Clearing auth_session and restarting for fresh QR code...');
+                console.log(`🗑️ [LOGGED OUT] Session was logged out. Clearing ${getSessionName()} and restarting for fresh QR code...`);
                 sessionInvalidated = true;
                 if (currentAuthState && currentAuthState.clearAuth) {
                     await currentAuthState.clearAuth();
                 }
-                const sessionDir = path.join(__dirname, 'auth_session');
+                const sessionDir = getSessionDir();
                 if (fs.existsSync(sessionDir)) {
                     try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (_) {}
                 }
                 currentQr = null;
                 currentQrDataUrl = null;
                 currentPairingCode = null;
-                setTimeout(startWhatsAppBot, 2000);
+                if (reconnectTimeout) clearTimeout(reconnectTimeout);
+                reconnectTimeout = setTimeout(startWhatsAppBot, 2000);
             } else {
-                setTimeout(startWhatsAppBot, 3000);
+                if (reconnectTimeout) clearTimeout(reconnectTimeout);
+                reconnectTimeout = setTimeout(startWhatsAppBot, 3500);
             }
         } else if (connection === 'open') {
             isConnected = true;
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
             currentQr = null;
             currentQrDataUrl = null;
             currentPairingCode = null;
@@ -1103,7 +1157,7 @@ async function startWhatsAppBot() {
         }
     });
 
-    async function processSingleMessage(msg) {
+    async function processSingleMessage(msg, customText = null) {
         if (!msg || !msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return;
         // Strictly ignore all group messages (@g.us) to prevent session corruption and spam
         if ((msg.key.remoteJid || '').endsWith('@g.us')) return;
@@ -1122,7 +1176,7 @@ async function startWhatsAppBot() {
 
         const effectiveImg = imgMessage || docImageMessage;
 
-        const text = (
+        const text = (customText !== null) ? customText : (
             msg.message.conversation ||
             msg.message.extendedTextMessage?.text ||
             effectiveImg?.caption ||
@@ -1302,6 +1356,55 @@ async function startWhatsAppBot() {
         return false;
     }
 
+    // Inbound Burst Debounce Buffer (Handles 2+ msgs/sec gracefully without memory crash)
+    const senderBurstBuffers = {};
+
+    function handleIncomingBurstMessage(senderPhone, msg) {
+        if (!senderBurstBuffers[senderPhone]) {
+            senderBurstBuffers[senderPhone] = {
+                timer: null,
+                texts: [],
+                lastMsg: msg,
+                hasImage: false
+            };
+        }
+
+        const buf = senderBurstBuffers[senderPhone];
+        buf.lastMsg = msg;
+
+        const imgMessage = msg.message.imageMessage ||
+            msg.message.viewOnceMessage?.message?.imageMessage ||
+            msg.message.viewOnceMessageV2?.message?.imageMessage ||
+            msg.message.ephemeralMessage?.message?.imageMessage ||
+            (msg.message.documentMessage?.mimetype?.startsWith('image/') ? msg.message.documentMessage : null);
+
+        if (imgMessage) {
+            buf.hasImage = true;
+            buf.lastMsg = msg;
+        }
+
+        const text = (
+            msg.message.conversation ||
+            msg.message.extendedTextMessage?.text ||
+            imgMessage?.caption ||
+            ''
+        ).trim();
+
+        if (text) buf.texts.push(text);
+
+        // Rapid burst debounce delay: 1.2s for image, 2.5s for rapid text bursts
+        const debounceDelay = buf.hasImage ? 1200 : 2500;
+
+        if (buf.timer) clearTimeout(buf.timer);
+        buf.timer = setTimeout(() => {
+            const aggregatedText = buf.texts.join(' \n ');
+            const finalMsg = buf.lastMsg;
+            delete senderBurstBuffers[senderPhone];
+
+            queueMessageForSender(senderPhone, () => processSingleMessage(finalMsg, aggregatedText || null));
+        }, debounceDelay);
+    }
+
     // Listen to incoming messages (handles multiple users simultaneously and queues bursts per user)
     sock.ev.on('messages.upsert', async ({ messages }) => {
         if (!messages || messages.length === 0) return;
@@ -1338,7 +1441,8 @@ async function startWhatsAppBot() {
             // Normal customer messages ignore fromMe (bot never replies to its own sent messages)
             if (isFromMe) continue;
 
-            queueMessageForSender(senderPhone, () => processSingleMessage(msg));
+            // Process through burst debounce buffer
+            handleIncomingBurstMessage(senderPhone, msg);
         }
     });
 }

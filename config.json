@@ -1,4 +1,6 @@
 {
+  "client_id": "mex_tanim_esports",
+  "session_name": "mex_tanim_auth_session",
   "bot_phone_number": "8801611657757",
   "backend_webhook_url": "http://127.0.0.1:8000/api/auth/whatsapp/confirm",
   "platform_name": "Mex Tanim Esports",
