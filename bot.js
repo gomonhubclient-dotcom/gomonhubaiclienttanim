@@ -738,7 +738,7 @@ function getOrderedCandidateKeys() {
     return available.length > 0 ? available : coolingDown;
 }
 
-// Helper: Formats Current Bangladesh Real Time (Asia/Dhaka UTC+6)
+// Helper: Formats Current Bangladesh Real Time (Asia/Dhaka UTC+6) and calculates upcoming matches deterministically
 function getBangladeshTimeInfo() {
     const now = new Date();
     try {
@@ -751,19 +751,53 @@ function getBangladeshTimeInfo() {
             month: 'short',
             day: 'numeric'
         });
-        const hour24 = parseInt(new Intl.DateTimeFormat('en-US', {
+        const parts = new Intl.DateTimeFormat('en-US', {
             timeZone: 'Asia/Dhaka',
+            hour12: false,
             hour: 'numeric',
-            hour12: false
-        }).format(now), 10);
+            minute: 'numeric'
+        }).formatToParts(now);
+        let hour24 = 0;
+        let minute = 0;
+        for (const p of parts) {
+            if (p.type === 'hour') hour24 = parseInt(p.value, 10);
+            if (p.type === 'minute') minute = parseInt(p.value, 10);
+        }
+        if (hour24 === 24) hour24 = 0;
+        const currentMinutes = hour24 * 60 + minute;
+
+        const schedule = [
+            { timeStr: '3:00 PM', minutes: 15 * 60, desc: '3:00 PM Daily Champion Rush (ফি ৬০৳ | প্রাইজ ৫০০৳ | ৬ ম্যাপ)' },
+            { timeStr: '4:00 PM', minutes: 16 * 60, desc: '4:00 PM Daily Mini Blust (ফি ৬০৳ | প্রাইজ ৫২০৳ | ৩ ম্যাপ)' },
+            { timeStr: '5:00 PM', minutes: 17 * 60, desc: '5:00 PM Daily Live Tournament (ফি ৯০৳ | প্রাইজ ৬৭০৳ | ৩ ম্যাপ)' },
+            { timeStr: '7:00 PM', minutes: 19 * 60, desc: '7:00 PM Daily Champion Rush (ফি ৬০৳ | প্রাইজ ৫০০৳ | ৬ ম্যাপ)' },
+            { timeStr: '8:00 PM', minutes: 20 * 60, desc: '8:00 PM Daily Mini Blust (ফি ৬০৳ | প্রাইজ ৫২০৳ | ৩ ম্যাপ)' },
+            { timeStr: '9:00 PM', minutes: 21 * 60, desc: '9:00 PM Daily V Badge Blust (ফি ৯০৳ | প্রাইজ ৬৭০৳ | ৩ ম্যাপ)' },
+            { timeStr: '10:00 PM', minutes: 22 * 60, desc: '10:00 PM Daily V Badge Blust (ফি ৯০৳) & 10:00 PM Premium Live SG Drone Room (ফি ১০০৳ | ১ম ৩০০৳, ২য় ২০০৳, ৩য় ১০০৳)' },
+            { timeStr: '11:00 PM', minutes: 23 * 60, desc: '11:00 PM Daily Big Champion Rush (ফি ১০০৳ | প্রাইজ ১০০০৳ | ৬ ম্যাপ | ৬০ পয়েন্ট টার্গেট)' },
+            { timeStr: '12:00 AM (Midnight)', minutes: 24 * 60, desc: '12:00 AM Daily Special Blust (ফি ৮৫৳ | প্রাইজ ৮০০৳ | ৩ ম্যাপ)' },
+            { timeStr: '1:00 AM (Late Night)', minutes: 25 * 60, desc: '1:00 AM Daily Special Blust (ফি ৮৫৳ | প্রাইজ ৮০০৳ | ৩ ম্যাপ)' }
+        ];
+
+        const upcoming = schedule.filter(m => m.minutes >= (currentMinutes - 5));
+        const upcomingListText = upcoming.length > 0 
+            ? upcoming.map(m => `• ${m.desc}`).join('\n')
+            : 'আজকের সব ম্যাচ শেষ। আগামীকাল দুপুর ৩:০০ PM থেকে আবার ম্যাচ শুরু হবে।';
+
         return {
             formatted: timeFormatter.format(now),
-            hour24
+            hour24,
+            minute,
+            currentMinutes,
+            upcomingListText
         };
     } catch (_) {
         return {
             formatted: now.toLocaleString(),
-            hour24: now.getHours()
+            hour24: now.getHours(),
+            minute: now.getMinutes(),
+            currentMinutes: now.getHours() * 60 + now.getMinutes(),
+            upcomingListText: '• 3:00 PM Daily Champion Rush (ফি ৬০৳)\n• 9:00 PM Daily V Badge Blust (ফি ৯০৳)\n• 10:00 PM Premium Live SG Drone Room (ফি ১০০৳)\n• 11:00 PM Daily Big Champion Rush (ফি ১০০৳)'
         };
     }
 }
@@ -838,12 +872,15 @@ PLATFORM IDENTITY & OWNER:
 - About: Mex Tanim Esports হলো জনপ্রিয় গেমার ও ক্রিয়েটর Tanim (Mex Tanim)-এর অফিসিয়াল গেমিং ও ই-স্পোর্টস প্ল্যাটফর্ম। এখানে রেগুলার গেমিং আপডেট, ডেইলি কাস্টম টুর্নামেন্ট ও মেগা টুর্নামেন্ট অনুষ্ঠিত হয়।
 
 CURRENT LIVE BANGLADESH REAL-TIME CLOCK:
-- Current Live BD Time: ${bdTime.formatted} (24-Hour Hour: ${bdTime.hour24})
-- TIME-AWARE RECOMMENDATION RULE: Use this current time to determine WHICH matches are UPCOMING for today/tonight! NEVER suggest or offer match times that have ALREADY PASSED earlier today!
-  • If before 3:00 PM: 3:00 PM Champion Rush (60৳), 4:00 PM Mini Blust (60৳), 5:00 PM Live (90৳), etc. are available.
-  • If afternoon (3:00 PM to 6:59 PM): Suggest upcoming matches: 7:00 PM Champion Rush (60৳), 8:00 PM Mini Blust (60৳), 9:00 PM Daily V Badge Blust (90৳), 10:00 PM Daily V Badge Blust (90৳) / 10:00 PM Premium Live SG Drone Room (100৳), 11:00 PM Daily Big Champion Rush (100৳).
-  • If evening (7:00 PM to 9:59 PM): Suggest upcoming: 8:00 PM Mini Blust (60৳), 9:00 PM Daily V Badge Blust (90৳), 10:00 PM Daily V Badge Blust (90৳) / 10:00 PM Premium Live SG Drone Room (100৳), 11:00 PM Daily Big Champion Rush (100৳), and 12 AM / 1 AM Special Blust (85৳).
-  • If night (10:00 PM onwards): Suggest 10:00 PM Daily V Badge Blust (90৳) / 10:00 PM Premium Live SG Drone Room (100৳), 11:00 PM Daily Big Champion Rush (100৳), and midnight 12:00 AM & 1:00 AM Special Blust (85৳ | PP 800৳).
+- Current Live BD Time: ${bdTime.formatted} (24-Hour Hour: ${bdTime.hour24}, Minute: ${bdTime.minute})
+- TIME-AWARE RECOMMENDATION RULE:
+  • 12-hour to 24-hour hour reference: 12 PM = 12:00, 1 PM = 13:00, 2 PM = 14:00, 3 PM = 15:00, 4 PM = 16:00, 5 PM = 17:00, 7 PM = 19:00, 8 PM = 20:00, 9 PM = 21:00, 10 PM = 22:00, 11 PM = 23:00.
+  • For example, when Current Time is 2:xx PM (Hour 14), 3:00 PM (Hour 15) has NOT passed yet! NEVER say a match has passed when the current time is earlier than the match time!
+- DYNAMIC PRE-COMPUTED UPCOMING MATCHES FOR TODAY (USE THIS LIST DIRECTLY):
+${bdTime.upcomingListText}
+- WHEN USER ASKS FOR UPCOMING / AVAILABLE MATCHES OR FORWARDS A MATCH NOTICE:
+  • Consult the UPCOMING list above! Any match present in the UPCOMING list is available for booking right now.
+  • Only if a requested match time is NOT in the UPCOMING list (meaning it already passed earlier today), inform them politely that the match already started/passed, and suggest the upcoming matches from the list above!
 
 NATURAL HUMAN TOURNAMENT SUPPORT FLOW:
 1. When user asks for tournament/slot ("slot ache?", "match khelbo", "tournament lagbe", "khelte chai", "ajke match ase?"):
