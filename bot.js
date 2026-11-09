@@ -993,13 +993,13 @@ ${JSON.stringify(knowledge, null, 2)}`;
 
     let cleanReply = null;
 
-    // Pass 1: Try Primary Model (gemini-3.5-flash-lite) across all candidate keys (9s resilient timeout)
+    // Pass 1: Try Primary Model (gemini-3.5-flash-lite) across all candidate keys (5s fast timeout)
     for (let i = 0; i < candidateKeys.length; i++) {
         const activeKey = candidateKeys[i];
         const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
 
         try {
-            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 9000);
+            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 5000);
             if (cleanReply) break;
         } catch (err) {
             console.warn(`⚠️ [GEMINI PRIMARY ERROR (${primaryModel}) Key ${maskedKey}] ${err.message}. Instant failover to next key in pool...`);
@@ -1017,7 +1017,7 @@ ${JSON.stringify(knowledge, null, 2)}`;
             const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
 
             try {
-                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 9000);
+                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 5000);
                 if (cleanReply) break;
             } catch (err) {
                 console.warn(`⚠️ [GEMINI SECONDARY ERROR (${secondaryModel}) Key ${maskedKey}] ${err.message}.`);
