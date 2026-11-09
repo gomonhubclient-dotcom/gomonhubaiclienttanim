@@ -731,9 +731,11 @@ function getOrderedCandidateKeys() {
     }
 
     const available = ordered.filter(k => !keyCooldowns[k] || keyCooldowns[k] <= now);
-    const coolingDown = ordered.filter(k => keyCooldowns[k] && keyCooldowns[k] > now);
+    const coolingDown = ordered.filter(k => keyCooldowns[k] && keyCooldowns[k] > now)
+        .sort((a, b) => (keyCooldowns[a] || 0) - (keyCooldowns[b] || 0));
 
-    return available.length > 0 ? available.concat(coolingDown) : coolingDown;
+    // True load balancing: prioritize active healthy keys so cooled keys rest full 60s
+    return available.length > 0 ? available : coolingDown;
 }
 
 // Helper: Formats Current Bangladesh Real Time (Asia/Dhaka UTC+6)
@@ -818,6 +820,7 @@ async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = nu
     const systemPrompt = `You are Lisa (লিসা), the smart, sweet, and professional female gamer and official customer support executive for "Mex Tanim Esports" on WhatsApp in Bangladesh. You chat naturally and politely with fellow gamers in Bengali/Banglish, addressing customers warmly and respectfully as "ভাইয়া" (or "আপু"), using a helpful and charming female tone (e.g. "আমি দিচ্ছি ভাইয়া", "চেক করে দেখছি").
 
 CRITICAL PERSONA RULES FOR LISA:
+- EMOJI USAGE RULE: NEVER overuse flower emojis (🌸)! Speak like a natural, professional human support executive. Only use casual emojis (😊, 🎮, 👍, ✨) sparingly when fitting. Do NOT add 🌸 to every sentence!
 - NEVER repeat "I am Lisa" in every message! Only mention your name when the user directly asks ("tmi k?" / "tumi ke?") or in initial greeting if needed. In regular conversation, chat naturally without constantly repeating your name!
 - WHEN ASKED "tmi k?", "tumi ke?", "কে তুমি?", "tmr porichoy ki?":
   Answer directly without unnecessary Salam:
@@ -960,8 +963,7 @@ ABSOLUTE HUMAN RULES (NEVER BREAK THESE):
    - Accusations & Doubts ("scammer", "fake", "trust", "scam"):
      Answer calm, friendly & reassuring: "আরে না ভাইয়া! Mex Tanim Esports হলো জনপ্রিয় গেমার ও ক্রিয়েটর Tanim (Mex Tanim) ভাইয়ের অফিসিয়াল প্ল্যাটফর্ম। আমাদের ইউটিউব ও ফেসবুক পেজ ঘুরে দেখতে পারেন, শত শত প্লেয়ার নিয়মিত টুর্নামেন্ট খেলছে। কোনো সন্দেহ বা ফেকের সুযোগ নেই ভাইয়া 🌸❤️"
 
-Platform Knowledge Base:
-${JSON.stringify(knowledge, null, 2)}`;
+`;
 
     const currentParts = [];
     if (imageBase64) {
@@ -976,8 +978,8 @@ ${JSON.stringify(knowledge, null, 2)}`;
         text: userMessage || 'এই স্ক্রিনশট বা ছবিটি দেখে আমাকে সাহায্য করুন ভাই।'
     });
 
-    // Sanitized multi-turn conversation contents
-    const historySlice = mem.history.slice(-8);
+    // Lightweight history (last 4 turns) to keep token payload ultra-light & prevent TPM exhaustion
+    const historySlice = mem.history.slice(-4);
     const contents = formatGeminiContents(historySlice, currentParts);
 
     const data = JSON.stringify({
@@ -986,15 +988,17 @@ ${JSON.stringify(knowledge, null, 2)}`;
         },
         contents,
         generationConfig: {
-            maxOutputTokens: 1000,
+            maxOutputTokens: 500,
             temperature: 0.7
         }
     });
 
     let cleanReply = null;
 
-    // Pass 1: Try Primary Model (gemini-3.5-flash-lite) across all candidate keys (5s fast timeout)
-    for (let i = 0; i < candidateKeys.length; i++) {
+    // Smart Round-Robin Execution: Try at most 2 healthy keys with gentle backoff
+    // Never blasts all 6 keys in 1 second, saving the rest of the pool for other customers
+    const maxAttempts = Math.min(candidateKeys.length, 2);
+    for (let i = 0; i < maxAttempts; i++) {
         const activeKey = candidateKeys[i];
         const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
 
@@ -1002,28 +1006,26 @@ ${JSON.stringify(knowledge, null, 2)}`;
             cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 5000);
             if (cleanReply) break;
         } catch (err) {
-            console.warn(`⚠️ [GEMINI PRIMARY ERROR (${primaryModel}) Key ${maskedKey}] ${err.message}. Instant failover to next key in pool...`);
+            console.warn(`⚠️ [GEMINI PRIMARY ERROR (${primaryModel}) Key ${maskedKey}] ${err.message}. Rotating key...`);
             if (err.statusCode === 429 || err.statusCode === 503 || err.statusCode === 408) {
                 keyCooldowns[activeKey] = Date.now() + 60000;
+                if (i < maxAttempts - 1) {
+                    await new Promise(r => setTimeout(r, 600));
+                }
             }
         }
     }
 
-    // Pass 2: Secondary Model (gemini-3.5-flash) across key pool if primary pass had issues
-    if (!cleanReply) {
-        console.warn(`⚠️ [GEMINI PASS 1 COMPLETE] Trying secondary model (${secondaryModel}) across key pool...`);
-        for (let i = 0; i < candidateKeys.length; i++) {
-            const activeKey = candidateKeys[i];
-            const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
-
-            try {
-                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 5000);
-                if (cleanReply) break;
-            } catch (err) {
-                console.warn(`⚠️ [GEMINI SECONDARY ERROR (${secondaryModel}) Key ${maskedKey}] ${err.message}.`);
-                if (err.statusCode === 429 || err.statusCode === 503 || err.statusCode === 408) {
-                    keyCooldowns[activeKey] = Date.now() + 60000;
-                }
+    // Secondary Model Pass (tries next fresh key in pool if primary model had issue)
+    if (!cleanReply && candidateKeys.length > maxAttempts) {
+        const backupKey = candidateKeys[maxAttempts];
+        const maskedKey = backupKey.length > 8 ? `${backupKey.slice(0, 4)}...${backupKey.slice(-4)}` : 'KEY';
+        try {
+            cleanReply = await requestGeminiApi(secondaryModel, data, backupKey, 5000);
+        } catch (err) {
+            console.warn(`⚠️ [GEMINI SECONDARY ERROR (${secondaryModel}) Key ${maskedKey}] ${err.message}.`);
+            if (err.statusCode === 429 || err.statusCode === 503 || err.statusCode === 408) {
+                keyCooldowns[backupKey] = Date.now() + 60000;
             }
         }
     }
@@ -1478,8 +1480,8 @@ async function startWhatsAppBot() {
 
         if (text) buf.texts.push(text);
 
-        // Rapid burst debounce delay: 1.2s for image, 2.5s for rapid text bursts
-        const debounceDelay = buf.hasImage ? 1200 : 2500;
+        // Rapid burst debounce delay: 1s for image, 800ms for fast instant text replies
+        const debounceDelay = buf.hasImage ? 1000 : 800;
 
         if (buf.timer) clearTimeout(buf.timer);
         buf.timer = setTimeout(() => {
