@@ -1190,6 +1190,9 @@ async function startWhatsAppBot() {
         printQRInTerminal: false,
         syncFullHistory: false,
         markOnlineOnConnect: true,
+        keepAliveIntervalMs: 15000,
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
         msgRetryCounterCache,
         getMessage: async (key) => {
             if (key?.id) {
@@ -2344,8 +2347,8 @@ server.listen(PORT, '0.0.0.0', () => {
                 const client = pingTarget.startsWith('https') ? https : http;
                 client.get(pingTarget, () => {}).on('error', () => {});
             } catch (_) {}
-        }, 10 * 60 * 1000); // Ping every 10 minutes
-        console.log(`⏱️ [RENDER 24/7 KEEP-ALIVE] Auto-pinging ${pingTarget} every 10 mins.`);
+        }, 4 * 60 * 1000); // Ping every 4 minutes (Render sleeps at 15 mins, 4 mins guarantee 24/7 online)
+        console.log(`⏱️ [RENDER 24/7 KEEP-ALIVE] Auto-pinging ${pingTarget} every 4 mins.`);
     }
 });
 
@@ -2354,12 +2357,14 @@ startWhatsAppBot();
 // Graceful shutdown handler for Render deployments & process restarts
 // Prevents overlapping instances and eliminates Bad MAC errors during deploy
 async function handleGracefulShutdown(signal) {
-    console.log(`\n🛑 [SHUTDOWN] Received ${signal}. Gracefully disconnecting WhatsApp and closing resources...`);
+    console.log(`\n🛑 [SHUTDOWN] Received ${signal}. Gracefully stopping background resources...`);
     try {
         if (sock) {
             try {
-                sock.end();
-                console.log('🔌 [WHATSAPP DISCONNECTED] Closed Baileys socket connection cleanly.');
+                sock.ev.removeAllListeners();
+                if (sock.ws && sock.ws.readyState === 1) {
+                    sock.ws.close();
+                }
             } catch (_) {}
         }
         if (mongoClient) {
