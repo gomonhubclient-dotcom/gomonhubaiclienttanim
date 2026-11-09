@@ -1480,8 +1480,8 @@ async function startWhatsAppBot() {
 
         if (text) buf.texts.push(text);
 
-        // Rapid burst debounce delay: 1s for image, 800ms for fast instant text replies
-        const debounceDelay = buf.hasImage ? 1000 : 800;
+        // Burst debounce delay: 1.2s for image, 2s for text bursts so multi-messages sent within 2 seconds are aggregated and replied together
+        const debounceDelay = buf.hasImage ? 1200 : 2000;
 
         if (buf.timer) clearTimeout(buf.timer);
         buf.timer = setTimeout(() => {
