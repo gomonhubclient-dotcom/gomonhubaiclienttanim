@@ -1302,6 +1302,22 @@ async function startWhatsAppBot() {
             if (sk) {
                 console.log(`🔑 [PERMANENT SESSION KEY]: ${sk}\n`);
             }
+
+            // Immediately announce companion device presence as AVAILABLE to activate real-time message routing
+            try {
+                await sock.sendPresenceUpdate('available');
+                console.log('📢 [PRESENCE] Announced bot companion presence as AVAILABLE to WhatsApp servers.');
+            } catch (presErr) {
+                console.error('⚠️ [PRESENCE ERROR]', presErr.message);
+            }
+
+            // Maintain presence every 3 minutes so WhatsApp never marks this companion device as idle
+            if (global.presenceKeepAliveTimer) clearInterval(global.presenceKeepAliveTimer);
+            global.presenceKeepAliveTimer = setInterval(() => {
+                if (sock && isConnected) {
+                    sock.sendPresenceUpdate('available').catch(() => {});
+                }
+            }, 3 * 60 * 1000);
         }
     });
 
@@ -1568,15 +1584,21 @@ async function startWhatsAppBot() {
             if (senderJid.endsWith('@g.us')) continue;
 
             // Stale Backlog / Offline Message Guard:
-            // Safely skip messages that were sent BEFORE the bot started (older than 60s before connect)
+            // Safely skip messages that were sent BEFORE the bot started (older than 300s before connect)
             const rawTime = msg.messageTimestamp;
             const msgTime = (typeof rawTime === 'object' && rawTime?.toNumber) ? rawTime.toNumber() : Number(rawTime || 0);
-            if (botConnectTimestamp > 0 && msgTime > 0 && msgTime < (botConnectTimestamp - 60)) {
+            if (botConnectTimestamp > 0 && msgTime > 0 && msgTime < (botConnectTimestamp - 300)) {
                 continue;
             }
 
-            // Normal WhatsApp receipts, status stubs, and reactions do not carry a text message payload - safely ignore
-            if (!msg.message) continue;
+            // Normal WhatsApp receipts, status stubs, and reactions do not carry a text message payload
+            if (!msg.message) {
+                if (senderPhone && !isFromMe && senderPhone.length > 5) {
+                    console.log(`⚠️ [EMPTY OR UNDECRYPTED PAYLOAD] Message from ${senderPhone} arrived without payload. Auto-healing pairwise session.`);
+                    purgeSenderCorruptedSession(senderJid);
+                }
+                continue;
+            }
 
             // Cache received message in memory for retry requests
             if (msg.key?.id) {
@@ -1749,6 +1771,48 @@ const server = http.createServer(async (req, res) => {
                         success: false,
                         message: isConnected ? 'WhatsApp is already connected!' : 'Bot socket not ready yet. Please wait a few seconds.'
                     }));
+                }
+            } catch (err) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, message: err.message }));
+            }
+        });
+        return;
+    }
+
+    // API: Soft Socket Reconnect (Refreshes WhatsApp connection without logging out or invalidating session)
+    if (parsedUrl.pathname === '/api/bot-reconnect' && req.method === 'POST') {
+        try {
+            console.log('🔄 [API RECONNECT] Soft socket refresh requested. Reconnecting WebSocket without logout...');
+            if (sock && sock.ws) {
+                sock.ws.close();
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, message: 'Socket soft reconnect initiated.' }));
+        } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: err.message }));
+        }
+        return;
+    }
+
+    // API: Test Send Message (Verify outbound routing without touching primary phone)
+    if (parsedUrl.pathname === '/api/test-send' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body || '{}');
+                const rawTo = (data.to || '').replace(/\D/g, '');
+                const toJid = (rawTo.startsWith('88') ? rawTo : ('88' + rawTo)) + '@s.whatsapp.net';
+                const msgText = data.text || 'Mex Tanim Esports bot test ping.';
+                if (sock && isConnected) {
+                    await sock.sendMessage(toJid, { text: msgText });
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, message: `Test message delivered to ${toJid}` }));
+                } else {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: false, message: 'Bot socket is not connected.' }));
                 }
             } catch (err) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
