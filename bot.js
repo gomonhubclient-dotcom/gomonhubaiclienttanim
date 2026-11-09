@@ -1553,32 +1553,32 @@ async function startWhatsAppBot() {
     // Listen to incoming messages (handles multiple users simultaneously and queues bursts per user)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (!messages || messages.length === 0) return;
-        // Process only real-time incoming messages to prevent history replay storms
-        if (type && type !== 'notify') return;
 
         for (const msg of messages) {
             if (!msg || msg.key?.remoteJid === 'status@broadcast') continue;
 
+            const senderJid = msg.key?.remoteJid || '';
+            const senderPhone = senderJid.replace(/@.*$/, '');
+            const isFromMe = !!msg.key?.fromMe;
+
+            // Ignore group messages at the root so they never hit session ciphers
+            if (senderJid.endsWith('@g.us')) continue;
+
             // Stale Backlog / Offline Message Guard:
-            // Safely skip stale messages queued on WhatsApp servers while bot was offline/restarting (prevents Bad MAC replay storms)
-            const msgTime = Number(msg.messageTimestamp || 0);
-            if (botConnectTimestamp > 0 && msgTime > 0 && msgTime < (botConnectTimestamp - 3)) {
+            // Safely skip messages that were sent BEFORE the bot started (older than 60s before connect)
+            const rawTime = msg.messageTimestamp;
+            const msgTime = (typeof rawTime === 'object' && rawTime?.toNumber) ? rawTime.toNumber() : Number(rawTime || 0);
+            if (botConnectTimestamp > 0 && msgTime > 0 && msgTime < (botConnectTimestamp - 60)) {
                 continue;
             }
 
-            // Normal WhatsApp receipts, status stubs, and reactions do not carry a text message payload - safely ignore without touching session keys!
+            // Normal WhatsApp receipts, status stubs, and reactions do not carry a text message payload - safely ignore
             if (!msg.message) continue;
 
             // Cache received message in memory for retry requests
-            if (msg.key?.id && msg.message) {
+            if (msg.key?.id) {
                 msgCache.set(msg.key.id, msg.message);
             }
-            // Ignore group messages at the root so they never hit session ciphers
-            if ((msg.key.remoteJid || '').endsWith('@g.us')) continue;
-
-            const senderJid = msg.key.remoteJid;
-            const senderPhone = (senderJid || '').replace(/@.*$/, '');
-            const isFromMe = !!msg.key.fromMe;
 
             const text = (
                 msg.message.conversation ||
@@ -1599,6 +1599,8 @@ async function startWhatsAppBot() {
 
             // Normal customer messages ignore fromMe (bot never replies to its own sent messages)
             if (isFromMe) continue;
+
+            console.log(`📩 [INCOMING CHAT DETECTED] From: ${senderPhone} | Type: ${type} | Text: "${text ? text.substring(0, 60) : '[ছবি/মিডিয়া]'}"`);
 
             // Process through burst debounce buffer
             handleIncomingBurstMessage(senderPhone, msg);
