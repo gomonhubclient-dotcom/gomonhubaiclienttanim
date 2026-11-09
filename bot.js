@@ -14,19 +14,27 @@ const crypto = require('crypto');
 // Intercepts and silences internal libsignal decryption noise (e.g. Bad MAC, missing session)
 // so stale/duplicate packet warnings do not pollute the terminal with alarming red crash logs.
 const originalConsoleError = console.error;
+const recentPurgedSenders = new Map();
+
 console.error = function (...args) {
     const errorStr = args.map(a => (typeof a === 'string' ? a : (a?.stack || a?.message || String(a)))).join(' ');
     if (
         errorStr.includes('Bad MAC') ||
         errorStr.includes('Failed to decrypt message with any known session') ||
-        errorStr.includes('Session error:Error: Bad MAC')
+        errorStr.includes('Session error') ||
+        errorStr.includes('MessageCounterError')
     ) {
-        // Extract phone number if present in error and auto-purge corrupt keys
-        const phoneMatch = errorStr.match(/(\d{8,15})/);
+        // Extract phone number if present in libsignal stack trace (e.g. 65984169824414.0)
+        const phoneMatch = errorStr.match(/(\d{9,16})/);
         if (phoneMatch && phoneMatch[1]) {
-            purgeSenderCorruptedSession(phoneMatch[1] + '@s.whatsapp.net');
+            const senderPhone = phoneMatch[1];
+            const now = Date.now();
+            if (!recentPurgedSenders.has(senderPhone) || (now - recentPurgedSenders.get(senderPhone)) > 15000) {
+                recentPurgedSenders.set(senderPhone, now);
+                purgeSenderCorruptedSession(senderPhone + '@s.whatsapp.net');
+                console.log(`⚡ [AUTO-REPAIR] Handled out-of-sync session for +${senderPhone}. Prepared fresh handshake.`);
+            }
         }
-        console.log('⚡ [AUTO-REPAIR] Handled out-of-sync packet safely. Cleared corrupt key for fresh handshake.');
         return;
     }
     originalConsoleError.apply(console, args);
@@ -143,8 +151,9 @@ async function purgeSenderCorruptedSession(senderJid) {
 
     try {
         if (mongoCollection) {
+            // Surgically target ONLY this sender's libsignal session records, preserving all core credentials & prekeys
             const result = await mongoCollection.deleteMany({
-                _id: { $regex: cleanId }
+                _id: { $regex: `session-.*${cleanId}` }
             });
             if (result && result.deletedCount > 0) {
                 console.log(`🧹 [AUTO-HEAL] Purged ${result.deletedCount} desynced session keys for +${cleanId} in MongoDB. WhatsApp will perform fresh handshake.`);
@@ -984,13 +993,13 @@ ${JSON.stringify(knowledge, null, 2)}`;
 
     let cleanReply = null;
 
-    // Pass 1: Try Primary Model (gemini-3.5-flash-lite) across all candidate keys (4.5s fast timeout)
+    // Pass 1: Try Primary Model (gemini-3.5-flash-lite) across all candidate keys (9s resilient timeout)
     for (let i = 0; i < candidateKeys.length; i++) {
         const activeKey = candidateKeys[i];
         const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
 
         try {
-            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 4500);
+            cleanReply = await requestGeminiApi(primaryModel, data, activeKey, 9000);
             if (cleanReply) break;
         } catch (err) {
             console.warn(`⚠️ [GEMINI PRIMARY ERROR (${primaryModel}) Key ${maskedKey}] ${err.message}. Instant failover to next key in pool...`);
@@ -1008,7 +1017,7 @@ ${JSON.stringify(knowledge, null, 2)}`;
             const maskedKey = activeKey.length > 8 ? `${activeKey.slice(0, 4)}...${activeKey.slice(-4)}` : 'KEY';
 
             try {
-                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 4500);
+                cleanReply = await requestGeminiApi(secondaryModel, data, activeKey, 9000);
                 if (cleanReply) break;
             } catch (err) {
                 console.warn(`⚠️ [GEMINI SECONDARY ERROR (${secondaryModel}) Key ${maskedKey}] ${err.message}.`);
@@ -1483,19 +1492,13 @@ async function startWhatsAppBot() {
     }
 
     // Listen to incoming messages (handles multiple users simultaneously and queues bursts per user)
-    sock.ev.on('messages.upsert', async ({ messages }) => {
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (!messages || messages.length === 0) return;
+        // Process only real-time incoming messages to prevent history replay storms
+        if (type && type !== 'notify') return;
+
         for (const msg of messages) {
             if (!msg || msg.key?.remoteJid === 'status@broadcast') continue;
-
-            // Self-Healing Hook: If an incoming message could not be decrypted by libsignal (e.g. ciphertext stub or Bad MAC)
-            if (!msg.message) {
-                const corruptSender = msg.key?.remoteJid;
-                if (corruptSender && !corruptSender.endsWith('@g.us')) {
-                    purgeSenderCorruptedSession(corruptSender);
-                }
-                continue;
-            }
 
             // Stale Backlog / Offline Message Guard:
             // Safely skip stale messages queued on WhatsApp servers while bot was offline/restarting (prevents Bad MAC replay storms)
@@ -1503,6 +1506,9 @@ async function startWhatsAppBot() {
             if (botConnectTimestamp > 0 && msgTime > 0 && msgTime < (botConnectTimestamp - 3)) {
                 continue;
             }
+
+            // Normal WhatsApp receipts, status stubs, and reactions do not carry a text message payload - safely ignore without touching session keys!
+            if (!msg.message) continue;
 
             // Cache received message in memory for retry requests
             if (msg.key?.id && msg.message) {
