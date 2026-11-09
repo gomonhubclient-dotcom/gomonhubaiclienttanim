@@ -376,16 +376,26 @@ function setBotPaused(paused) {
     } catch (_) {}
 }
 
-// In-Memory Live Chat Stream Buffer (Zero-disk, stores latest 60 interactions for web monitor)
+// In-Memory Live Chat Stream Buffer (Zero-disk, stores latest 30 interactions for web monitor)
 const liveChatLogs = [];
+let dailyChatCounter = 0;
+let lastResetDhakaDay = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
+
 function addLiveChatMessage(entry) {
     try {
+        const todayDhaka = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
+        if (todayDhaka !== lastResetDhakaDay) {
+            dailyChatCounter = 0;
+            lastResetDhakaDay = todayDhaka;
+        }
+        dailyChatCounter++;
+
         liveChatLogs.unshift({
             id: Date.now() + '-' + Math.random().toString(36).substr(2, 5),
             timestamp: Date.now(),
             ...entry
         });
-        if (liveChatLogs.length > 60) {
+        if (liveChatLogs.length > 30) {
             liveChatLogs.pop();
         }
     } catch (_) {}
@@ -1660,7 +1670,7 @@ const server = http.createServer(async (req, res) => {
             isBotPaused: isBotPaused,
             botPhone: config.bot_phone_number,
             platformName: config.platform_name || 'Mex Tanim Esports',
-            totalLogs: liveChatLogs.length,
+            totalLogs: Math.max(dailyChatCounter, liveChatLogs.length),
             messages: liveChatLogs
         }));
         return;
@@ -2092,7 +2102,7 @@ const server = http.createServer(async (req, res) => {
           <div id="metricTime" class="stat-value" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8;">--:--</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">💬 মোট ক্যাপচার্ড চ্যাট</div>
+          <div class="stat-label">💬 ২৪ ঘণ্টার মোট চ্যাট</div>
           <div id="metricChatCount" class="stat-value" style="color: #facc15;">০ টি</div>
         </div>
       </div>
