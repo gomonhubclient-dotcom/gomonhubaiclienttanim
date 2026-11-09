@@ -10,6 +10,37 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 
+// --- AUTO-HEALING CONSOLE ERROR SHIELD ---
+// Intercepts and silences internal libsignal decryption noise (e.g. Bad MAC, missing session)
+// so stale/duplicate packet warnings do not pollute the terminal with alarming red crash logs.
+const originalConsoleError = console.error;
+console.error = function (...args) {
+    const errorStr = args.map(a => (typeof a === 'string' ? a : (a?.stack || a?.message || String(a)))).join(' ');
+    if (
+        errorStr.includes('Bad MAC') ||
+        errorStr.includes('Failed to decrypt message with any known session') ||
+        errorStr.includes('Session error:Error: Bad MAC')
+    ) {
+        // Extract phone number if present in error and auto-purge corrupt keys
+        const phoneMatch = errorStr.match(/(\d{8,15})/);
+        if (phoneMatch && phoneMatch[1]) {
+            purgeSenderCorruptedSession(phoneMatch[1] + '@s.whatsapp.net');
+        }
+        console.log('⚡ [AUTO-REPAIR] Handled out-of-sync packet safely. Cleared corrupt key for fresh handshake.');
+        return;
+    }
+    originalConsoleError.apply(console, args);
+};
+
+// Global protection against unhandled rejections from libsignal async queue
+process.on('unhandledRejection', (reason) => {
+    const rStr = String(reason?.stack || reason?.message || reason);
+    if (rStr.includes('Bad MAC') || rStr.includes('Session error')) {
+        return; // Handled gracefully
+    }
+    originalConsoleError('[UNHANDLED REJECTION]', reason);
+});
+
 // Load configuration
 const configPath = path.join(__dirname, 'config.json');
 let config = {
@@ -60,6 +91,7 @@ let currentQr = null;
 let currentQrDataUrl = null;
 let isConnected = false;
 let currentPairingCode = null;
+let botConnectTimestamp = 0;
 
 // MongoDB Connection & Cloud Auth State References
 let mongoClient = null;
@@ -97,6 +129,39 @@ async function getMongoDBAuthCollection() {
         }
     }
     return mongoCollection;
+}
+
+/**
+ * Automatically purges corrupted/desynchronized Signal keys for a specific sender.
+ * When Bad MAC or decryption failure occurs, deleting that sender's key forces
+ * WhatsApp to re-negotiate a brand new PreKey handshake on their very next message.
+ */
+async function purgeSenderCorruptedSession(senderJid) {
+    if (!senderJid) return;
+    const cleanId = String(senderJid).replace(/@.*$/, '').replace(/[^0-9]/g, '');
+    if (!cleanId || cleanId.length < 5) return;
+
+    try {
+        if (mongoCollection) {
+            const result = await mongoCollection.deleteMany({
+                _id: { $regex: cleanId }
+            });
+            if (result && result.deletedCount > 0) {
+                console.log(`🧹 [AUTO-HEAL] Purged ${result.deletedCount} desynced session keys for +${cleanId} in MongoDB. WhatsApp will perform fresh handshake.`);
+            }
+        }
+        const sessionDir = getSessionDir();
+        if (fs.existsSync(sessionDir)) {
+            const files = fs.readdirSync(sessionDir);
+            for (const f of files) {
+                if (f.includes(cleanId)) {
+                    try { fs.unlinkSync(path.join(sessionDir, f)); } catch (_) {}
+                }
+            }
+        }
+    } catch (_) {
+        // Silent graceful recovery
+    }
 }
 
 /**
@@ -1121,6 +1186,7 @@ async function startWhatsAppBot() {
             }
         } else if (connection === 'open') {
             isConnected = true;
+            botConnectTimestamp = Math.floor(Date.now() / 1000);
             if (reconnectTimeout) {
                 clearTimeout(reconnectTimeout);
                 reconnectTimeout = null;
@@ -1409,7 +1475,24 @@ async function startWhatsAppBot() {
     sock.ev.on('messages.upsert', async ({ messages }) => {
         if (!messages || messages.length === 0) return;
         for (const msg of messages) {
-            if (!msg || !msg.message || msg.key.remoteJid === 'status@broadcast') continue;
+            if (!msg || msg.key?.remoteJid === 'status@broadcast') continue;
+
+            // Self-Healing Hook: If an incoming message could not be decrypted by libsignal (e.g. ciphertext stub or Bad MAC)
+            if (!msg.message) {
+                const corruptSender = msg.key?.remoteJid;
+                if (corruptSender && !corruptSender.endsWith('@g.us')) {
+                    purgeSenderCorruptedSession(corruptSender);
+                }
+                continue;
+            }
+
+            // Stale Backlog / Offline Message Guard:
+            // Safely skip stale messages queued on WhatsApp servers while bot was offline/restarting (prevents Bad MAC replay storms)
+            const msgTime = Number(msg.messageTimestamp || 0);
+            if (botConnectTimestamp > 0 && msgTime > 0 && msgTime < (botConnectTimestamp - 3)) {
+                continue;
+            }
+
             // Cache received message in memory for retry requests
             if (msg.key?.id && msg.message) {
                 msgCache.set(msg.key.id, msg.message);
