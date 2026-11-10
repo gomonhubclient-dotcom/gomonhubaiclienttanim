@@ -1625,7 +1625,11 @@ async function startWhatsAppBot() {
             // Check if sender is Authorized Admin (Tanim using bot's own WhatsApp or GOMON developer)
             const cleanBotPhone = (config.bot_phone_number || '').replace(/\D/g, '');
             const cleanDevPhone = (config.developer_info?.whatsapp || '').replace(/\D/g, '');
-            const isAdmin = isFromMe || senderPhone.includes(cleanBotPhone) || (cleanDevPhone && senderPhone.includes(cleanDevPhone));
+            const connectedPhone = (sock?.user?.id || '').split(':')[0].replace(/\D/g, '');
+            const isAdmin = isFromMe ||
+                (connectedPhone && senderPhone.includes(connectedPhone)) ||
+                (cleanBotPhone && senderPhone.includes(cleanBotPhone)) ||
+                (cleanDevPhone && senderPhone.includes(cleanDevPhone));
 
             if (isAdmin && text) {
                 const handled = await handleAdminBotToggle(text, senderJid);
@@ -1801,6 +1805,38 @@ const server = http.createServer(async (req, res) => {
             res.end(JSON.stringify({ success: true, message: 'Socket soft reconnect initiated.' }));
         } catch (err) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: err.message }));
+        }
+        return;
+    }
+
+    // API: Toggle Bot Pause/Resume State (Master 1-Click Dashboard Switch)
+    if (parsedUrl.pathname === '/api/bot-toggle-pause' && req.method === 'POST') {
+        try {
+            let body = '';
+            req.on('data', chunk => { body += chunk; });
+            req.on('end', () => {
+                let targetState;
+                try {
+                    const data = JSON.parse(body || '{}');
+                    if (typeof data.paused === 'boolean') {
+                        targetState = data.paused;
+                    }
+                } catch (_) {}
+                if (targetState === undefined) {
+                    targetState = !isBotPaused;
+                }
+                setBotPaused(targetState);
+                console.log(`\n🎛️ [DASHBOARD MASTER SWITCH] Bot state changed to: ${isBotPaused ? 'PAUSED (OFF)' : 'ACTIVE (ON)'}\n`);
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({
+                    success: true,
+                    isBotPaused: isBotPaused,
+                    message: isBotPaused ? 'বট সাময়িকভাবে বন্ধ (PAUSED) করা হয়েছে।' : 'বট সফলভাবে চালু (ACTIVE) করা হয়েছে।'
+                }));
+            });
+        } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ success: false, message: err.message }));
         }
         return;
@@ -2107,6 +2143,14 @@ const server = http.createServer(async (req, res) => {
         </div>
       </div>
 
+      <!-- 1-CLICK MASTER PAUSE / RESUME CONTROLLER -->
+      <div style="margin-bottom: 16px;">
+        <button id="btnToggleBot" onclick="toggleBotPause()" style="width: 100%; padding: 13px 18px; border-radius: 12px; font-size: 0.95rem; font-weight: 800; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; justify-content: center; gap: 10px; border: 1.5px solid rgba(239, 68, 68, 0.5); background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(185, 28, 28, 0.28)); color: #fca5a5; box-shadow: 0 4px 14px rgba(0,0,0,0.25);">
+          <span id="btnToggleIcon" style="font-size: 1.25rem;">⏸️</span>
+          <span id="btnToggleText">বট সাময়িকভাবে বন্ধ (Pause) করুন</span>
+        </button>
+      </div>
+
       <!-- LIVE CHAT & AI MONITOR PANEL -->
       <div class="monitor-panel">
         <div class="monitor-header">
@@ -2227,6 +2271,7 @@ const server = http.createServer(async (req, res) => {
             badge.innerHTML = '<span>⏸️</span> বট সাময়িকভাবে বন্ধ (PAUSED / OFF)';
             document.getElementById('metricBotState').innerText = '⏸️ বন্ধ (PAUSED)';
             document.getElementById('metricBotState').style.color = '#f87171';
+            updatePauseButtonState(true);
           } else {
             badge.className = 'badge connected';
             badge.style.background = '';
@@ -2235,6 +2280,7 @@ const server = http.createServer(async (req, res) => {
             badge.innerHTML = '<span>●</span> WhatsApp বট কানেক্টেড (Active 24/7)';
             document.getElementById('metricBotState').innerText = '🟢 সক্রিয় (ACTIVE)';
             document.getElementById('metricBotState').style.color = '#4ade80';
+            updatePauseButtonState(false);
           }
 
           document.getElementById('metricChatCount').innerText = (data.totalLogs || 0) + ' টি';
@@ -2393,6 +2439,65 @@ const server = http.createServer(async (req, res) => {
         alert('এরর: ' + err.message);
         btn.innerText = 'Pairing Code তৈরি করুন 🔑';
         btn.disabled = false;
+      }
+    }
+
+    let isTogglingPause = false;
+    function updatePauseButtonState(isPaused) {
+      const btn = document.getElementById('btnToggleBot');
+      const btnIcon = document.getElementById('btnToggleIcon');
+      const btnText = document.getElementById('btnToggleText');
+      if (!btn) return;
+
+      if (isPaused) {
+        btn.style.background = 'linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(22, 163, 74, 0.32))';
+        btn.style.borderColor = 'rgba(34, 197, 94, 0.6)';
+        btn.style.color = '#86efac';
+        if (btnIcon) btnIcon.innerText = '▶️';
+        if (btnText) btnText.innerText = 'বট পুনরায় চালু (Resume) করুন';
+      } else {
+        btn.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(185, 28, 28, 0.28))';
+        btn.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+        btn.style.color = '#fca5a5';
+        if (btnIcon) btnIcon.innerText = '⏸️';
+        if (btnText) btnText.innerText = 'বট সাময়িকভাবে বন্ধ (Pause) করুন';
+      }
+    }
+
+    async function toggleBotPause() {
+      if (isTogglingPause) return;
+      isTogglingPause = true;
+      const btn = document.getElementById('btnToggleBot');
+      const btnText = document.getElementById('btnToggleText');
+      const originalText = btnText ? btnText.innerText : '';
+      if (btnText) btnText.innerText = 'প্রসেস হচ্ছে... ⏳';
+      if (btn) {
+        btn.style.opacity = '0.7';
+        btn.style.pointerEvents = 'none';
+      }
+
+      try {
+        const res = await fetch('/api/bot-toggle-pause', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const result = await res.json();
+        if (result && result.success) {
+          updatePauseButtonState(result.isBotPaused);
+          checkStatus();
+        } else {
+          alert('বট স্ট্যাটাস পরিবর্তন করা সম্ভব হয়নি।');
+          if (btnText) btnText.innerText = originalText;
+        }
+      } catch (err) {
+        alert('সার্ভার এরর: ' + err.message);
+        if (btnText) btnText.innerText = originalText;
+      } finally {
+        isTogglingPause = false;
+        if (btn) {
+          btn.style.opacity = '1';
+          btn.style.pointerEvents = 'auto';
+        }
       }
     }
 
