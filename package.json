@@ -4,7 +4,7 @@
   "description": "WhatsApp Verification and Auto-Reply Promo Bot for GOMONHUB Tournament",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node --max-old-space-size=400 bot.js"
   },
   "engines": {
     "node": ">=18.0.0"

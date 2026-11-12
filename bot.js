@@ -100,6 +100,21 @@ let currentQrDataUrl = null;
 let isConnected = false;
 let currentPairingCode = null;
 let botConnectTimestamp = 0;
+let lastSocketActivity = Date.now();
+
+// Soft Auto-Heal Watchdog Helper (Refreshes WebSocket without logging out or dropping session keys)
+function triggerSoftSocketHealing(reason = 'watchdog') {
+    try {
+        console.log(`🔄 [AUTO-HEAL TRIGGERED (${reason})] Performing soft WebSocket reset. Preserving MongoDB auth credentials...`);
+        if (sock && sock.ws) {
+            try { sock.ws.close(); } catch (_) { }
+        } else if (sock) {
+            try { sock.end(undefined); } catch (_) { }
+        }
+    } catch (e) {
+        console.error('⚠️ [AUTO-HEAL ERROR]:', e.message);
+    }
+}
 
 // MongoDB Connection & Cloud Auth State References
 let mongoClient = null;
@@ -139,6 +154,21 @@ async function getMongoDBAuthCollection() {
     return mongoCollection;
 }
 
+// Global In-Memory LRU Key Cache (Module Scope: synchronized with purgeSenderCorruptedSession & useMongoDBAuthState)
+const memKeyCache = new Map();
+const MAX_KEY_CACHE = 4000;
+
+function putMemKey(key, value) {
+    if (memKeyCache.has(key)) {
+        memKeyCache.delete(key);
+    } else if (memKeyCache.size >= MAX_KEY_CACHE) {
+        // Evict oldest (FIFO/LRU head) to keep memory bounded and prevent stale lockups
+        const oldestKey = memKeyCache.keys().next().value;
+        if (oldestKey) memKeyCache.delete(oldestKey);
+    }
+    memKeyCache.set(key, value);
+}
+
 /**
  * Automatically purges corrupted/desynchronized Signal keys for a specific sender.
  * When Bad MAC or decryption failure occurs, deleting that sender's key forces
@@ -150,13 +180,20 @@ async function purgeSenderCorruptedSession(senderJid) {
     if (!cleanId || cleanId.length < 5) return;
 
     try {
+        // 1. Purge from in-memory cache instantly so Baileys does not get the corrupt key from RAM
+        for (const k of Array.from(memKeyCache.keys())) {
+            if (k.includes(cleanId)) {
+                memKeyCache.delete(k);
+            }
+        }
+
+        // 2. Surgically target ONLY this sender's libsignal session records in MongoDB
         if (mongoCollection) {
-            // Surgically target ONLY this sender's libsignal session records, preserving all core credentials & prekeys
             const result = await mongoCollection.deleteMany({
                 _id: { $regex: `session-.*${cleanId}` }
-            });
+            }, { maxTimeMS: 3000 });
             if (result && result.deletedCount > 0) {
-                console.log(`🧹 [AUTO-HEAL] Purged ${result.deletedCount} desynced session keys for +${cleanId} in MongoDB. WhatsApp will perform fresh handshake.`);
+                console.log(`🧹 [AUTO-HEAL] Purged ${result.deletedCount} desynced session keys for +${cleanId} in MongoDB & Memory. WhatsApp will perform fresh handshake.`);
             }
         }
         const sessionDir = getSessionDir();
@@ -164,7 +201,7 @@ async function purgeSenderCorruptedSession(senderJid) {
             const files = fs.readdirSync(sessionDir);
             for (const f of files) {
                 if (f.includes(cleanId)) {
-                    try { fs.unlinkSync(path.join(sessionDir, f)); } catch (_) {}
+                    try { fs.unlinkSync(path.join(sessionDir, f)); } catch (_) { }
                 }
             }
         }
@@ -179,8 +216,27 @@ async function purgeSenderCorruptedSession(senderJid) {
  * Automatically cleans up consumed one-time pre-keys.
  */
 async function useMongoDBAuthState(collection) {
+    let pendingMongoWrites = [];
+    let isMongoFlushing = false;
+
+    async function flushMongoWrites() {
+        if (isMongoFlushing || pendingMongoWrites.length === 0) return;
+        isMongoFlushing = true;
+        const currentBatch = pendingMongoWrites.splice(0, 100);
+        try {
+            await collection.bulkWrite(currentBatch, { ordered: false, maxTimeMS: 5000 });
+        } catch (_) { }
+        finally {
+            isMongoFlushing = false;
+            if (pendingMongoWrites.length > 0) {
+                setTimeout(flushMongoWrites, 80);
+            }
+        }
+    }
+
     const writeData = async (data, id) => {
         try {
+            putMemKey(id, data);
             return await collection.replaceOne(
                 { _id: id },
                 {
@@ -188,7 +244,7 @@ async function useMongoDBAuthState(collection) {
                     value: JSON.parse(JSON.stringify(data, BufferJSON.replacer)),
                     updatedAt: new Date()
                 },
-                { upsert: true }
+                { upsert: true, maxTimeMS: 3000 }
             );
         } catch (err) {
             console.error(`⚠️ [MONGO AUTH WRITE ERROR] id: ${id}:`, err.message);
@@ -196,10 +252,18 @@ async function useMongoDBAuthState(collection) {
     };
 
     const readData = async (id) => {
+        if (memKeyCache.has(id)) {
+            const val = memKeyCache.get(id);
+            memKeyCache.delete(id);
+            memKeyCache.set(id, val); // Refresh LRU recency
+            return val;
+        }
         try {
-            const doc = await collection.findOne({ _id: id });
+            const doc = await collection.findOne({ _id: id }, { maxTimeMS: 3000 });
             if (!doc || !doc.value) return null;
-            return JSON.parse(JSON.stringify(doc.value), BufferJSON.reviver);
+            const val = JSON.parse(JSON.stringify(doc.value), BufferJSON.reviver);
+            putMemKey(id, val);
+            return val;
         } catch (err) {
             console.error(`⚠️ [MONGO AUTH READ ERROR] id: ${id}:`, err.message);
             return null;
@@ -207,8 +271,9 @@ async function useMongoDBAuthState(collection) {
     };
 
     const removeData = async (id) => {
+        memKeyCache.delete(id);
         try {
-            await collection.deleteOne({ _id: id });
+            await collection.deleteOne({ _id: id }, { maxTimeMS: 3000 });
         } catch (err) {
             console.error(`⚠️ [MONGO AUTH DELETE ERROR] id: ${id}:`, err.message);
         }
@@ -234,8 +299,6 @@ async function useMongoDBAuthState(collection) {
         }
     }
 
-
-
     return {
         state: {
             creds,
@@ -243,9 +306,27 @@ async function useMongoDBAuthState(collection) {
                 get: async (type, ids) => {
                     const data = {};
                     if (!ids || ids.length === 0) return data;
+
+                    const missingIds = [];
+                    for (const id of ids) {
+                        const cacheKey = `${type}-${id}`;
+                        if (memKeyCache.has(cacheKey)) {
+                            const val = memKeyCache.get(cacheKey);
+                            memKeyCache.delete(cacheKey);
+                            memKeyCache.set(cacheKey, val); // Refresh recency
+                            data[id] = val;
+                        } else {
+                            missingIds.push(id);
+                        }
+                    }
+
+                    if (missingIds.length === 0) {
+                        return data;
+                    }
+
                     try {
-                        const mongoIds = ids.map(id => `${type}-${id}`);
-                        const docs = await collection.find({ _id: { $in: mongoIds } }).toArray();
+                        const mongoIds = missingIds.map(id => `${type}-${id}`);
+                        const docs = await collection.find({ _id: { $in: mongoIds } }, { maxTimeMS: 3000 }).toArray();
                         const docMap = new Map();
                         for (const doc of docs) {
                             if (doc && doc.value) {
@@ -254,9 +335,10 @@ async function useMongoDBAuthState(collection) {
                                     val = proto.Message.AppStateSyncKeyData.fromObject(val);
                                 }
                                 docMap.set(doc._id, val);
+                                putMemKey(doc._id, val);
                             }
                         }
-                        for (const id of ids) {
+                        for (const id of missingIds) {
                             data[id] = docMap.get(`${type}-${id}`) || null;
                         }
                     } catch (err) {
@@ -271,6 +353,7 @@ async function useMongoDBAuthState(collection) {
                             const value = data[category][id];
                             const key = `${category}-${id}`;
                             if (value) {
+                                putMemKey(key, value); // ALWAYS updates memKeyCache! Never blocked!
                                 writes.push({
                                     replaceOne: {
                                         filter: { _id: key },
@@ -283,6 +366,7 @@ async function useMongoDBAuthState(collection) {
                                     }
                                 });
                             } else {
+                                memKeyCache.delete(key);
                                 writes.push({
                                     deleteOne: {
                                         filter: { _id: key }
@@ -292,19 +376,21 @@ async function useMongoDBAuthState(collection) {
                         }
                     }
                     if (writes.length > 0) {
-                        try {
-                            await collection.bulkWrite(writes, { ordered: false });
-                        } catch (err) {
-                            console.error(`⚠️ [MONGO AUTH BULK WRITE ERROR]:`, err.message);
+                        pendingMongoWrites.push(...writes);
+                        // Memory Ceiling: Cap pending queue to 300 to prevent RAM bloating during DB network stalls
+                        if (pendingMongoWrites.length > 300) {
+                            pendingMongoWrites = pendingMongoWrites.slice(-300);
                         }
+                        flushMongoWrites();
                     }
                 }
             }
         },
         saveCreds: () => writeData(creds, 'creds'),
         clearAuth: async () => {
+            memKeyCache.clear();
             try {
-                await collection.deleteMany({});
+                await collection.deleteMany({}, { maxTimeMS: 5000 });
                 console.log('🗑️ [MONGO AUTH] Successfully cleared all session documents in MongoDB.');
             } catch (e) {
                 console.error('⚠️ [MONGO AUTH CLEAR ERROR]:', e.message);
@@ -324,7 +410,7 @@ function getSessionKeyString() {
             const raw = fs.readFileSync(credsPath, 'utf8');
             return Buffer.from(raw).toString('base64');
         }
-    } catch (_) {}
+    } catch (_) { }
     return null;
 }
 
@@ -367,13 +453,13 @@ try {
         const saved = JSON.parse(fs.readFileSync(stateFilePath, 'utf8'));
         isBotPaused = !!saved.isBotPaused;
     }
-} catch (_) {}
+} catch (_) { }
 
 function setBotPaused(paused) {
     isBotPaused = paused;
     try {
         fs.writeFileSync(stateFilePath, JSON.stringify({ isBotPaused: paused }, null, 2), 'utf8');
-    } catch (_) {}
+    } catch (_) { }
 }
 
 // In-Memory Live Chat Stream Buffer (Zero-disk, stores latest 30 interactions for web monitor)
@@ -398,16 +484,24 @@ function addLiveChatMessage(entry) {
         if (liveChatLogs.length > 30) {
             liveChatLogs.pop();
         }
-    } catch (_) {}
+    } catch (_) { }
 }
 
-// Active chat conversation memory per sender
+// Active chat conversation memory per sender (LRU & TTL Auto-Purged to prevent Render 512MB OOM Crashes)
 // senderPhone -> { lastActive: timestamp, greeted: boolean, history: [ { role: 'user' | 'model', parts: [{ text }] } ] }
 const chatMemories = {};
+const MAX_ACTIVE_MEMORIES = 400;
 
 function getChatMemory(senderPhone) {
     const now = Date.now();
-    if (!chatMemories[senderPhone] || (now - chatMemories[senderPhone].lastActive > 30 * 60 * 1000)) {
+    if (!chatMemories[senderPhone] || (now - chatMemories[senderPhone].lastActive > 20 * 60 * 1000)) {
+        // Enforce upper boundary on active memories in RAM
+        const keys = Object.keys(chatMemories);
+        if (keys.length >= MAX_ACTIVE_MEMORIES) {
+            for (let i = 0; i < 80; i++) {
+                delete chatMemories[keys[i]];
+            }
+        }
         chatMemories[senderPhone] = {
             lastActive: now,
             greeted: false,
@@ -417,6 +511,18 @@ function getChatMemory(senderPhone) {
     chatMemories[senderPhone].lastActive = now;
     return chatMemories[senderPhone];
 }
+
+// Memory Guard: Clean up inactive memories every 5 minutes so RAM never exceeds ~120MB
+setInterval(() => {
+    try {
+        const now = Date.now();
+        for (const phone in chatMemories) {
+            if (now - (chatMemories[phone]?.lastActive || 0) > 15 * 60 * 1000) {
+                delete chatMemories[phone];
+            }
+        }
+    } catch (_) { }
+}, 5 * 60 * 1000);
 
 function getSmartFallbackReply(userMessage, hasImage = false, senderPhone = null) {
     if (hasImage && !userMessage) {
@@ -628,7 +734,7 @@ function requestGeminiApi(modelName, data, apiKey, timeoutMs = 12000) {
                         const json = JSON.parse(body);
                         const reply = json.candidates?.[0]?.content?.parts?.[0]?.text;
                         if (reply) return resolve(reply.trim());
-                    } catch (_) {}
+                    } catch (_) { }
                     return reject(new Error('Invalid JSON from Gemini'));
                 } else {
                     console.warn(`⚠️ [GEMINI API ERROR HTTP ${res.statusCode} (${modelName})] ${body.slice(0, 300)}`);
@@ -701,6 +807,42 @@ function formatGeminiContents(history = [], currentParts = []) {
     return clean;
 }
 
+// High-Speed In-Memory Cache for config.json & ai_knowledge.json (Zero Disk I/O Blocking)
+let cachedConfigData = null;
+let lastConfigCheckTime = 0;
+function getCachedConfig() {
+    const now = Date.now();
+    if (cachedConfigData && (now - lastConfigCheckTime < 10000)) {
+        return cachedConfigData;
+    }
+    lastConfigCheckTime = now;
+    try {
+        if (fs.existsSync(configPath)) {
+            cachedConfigData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            return cachedConfigData;
+        }
+    } catch (_) { }
+    return cachedConfigData || config;
+}
+
+let cachedKnowledgeData = null;
+let lastKnowledgeCheckTime = 0;
+function getCachedKnowledge() {
+    const now = Date.now();
+    if (cachedKnowledgeData && (now - lastKnowledgeCheckTime < 10000)) {
+        return cachedKnowledgeData;
+    }
+    lastKnowledgeCheckTime = now;
+    try {
+        const kPath = path.join(__dirname, 'ai_knowledge.json');
+        if (fs.existsSync(kPath)) {
+            cachedKnowledgeData = JSON.parse(fs.readFileSync(kPath, 'utf8'));
+            return cachedKnowledgeData;
+        }
+    } catch (_) { }
+    return cachedKnowledgeData || {};
+}
+
 // -------------------------------------------------------------
 // Dynamic Multi-Key Pool & Round-Robin Load Balancer for Gemini
 // -------------------------------------------------------------
@@ -708,13 +850,7 @@ let keyPoolIndex = 0;
 const keyCooldowns = {}; // apiKey -> cooldownUntilTimestamp
 
 function getGeminiApiKeyPool() {
-    let currentConfig = config;
-    try {
-        if (fs.existsSync(configPath)) {
-            currentConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        }
-    } catch (_) {}
-
+    const currentConfig = getCachedConfig();
     const raw = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || currentConfig.gemini_api_keys || currentConfig.gemini_api_key || config.gemini_api_keys || config.gemini_api_key || '';
 
     let rawKeys = [];
@@ -775,6 +911,8 @@ function getBangladeshTimeInfo() {
         }
         if (hour24 === 24) hour24 = 0;
         const currentMinutes = hour24 * 60 + minute;
+        // Logical continuous minutes: If after midnight (12:00 AM - 2:59 AM), treat as late-night extension (24h+) of previous evening's session
+        const logicalMinutes = (hour24 < 3) ? (hour24 + 24) * 60 + minute : hour24 * 60 + minute;
 
         const schedule = [
             { timeStr: '3:00 PM', minutes: 15 * 60, desc: '3:00 PM Daily Champion Rush (ফি ৬০৳ | প্রাইজ ৫০০৳ | ৬ ম্যাপ)' },
@@ -789,16 +927,19 @@ function getBangladeshTimeInfo() {
             { timeStr: '1:00 AM (Late Night)', minutes: 25 * 60, desc: '1:00 AM Daily Special Blust (ফি ৮৫৳ | প্রাইজ ৮০০৳ | ৩ ম্যাপ)' }
         ];
 
-        const upcoming = schedule.filter(m => m.minutes >= (currentMinutes - 5));
-        const upcomingListText = upcoming.length > 0 
+        const upcoming = schedule.filter(m => m.minutes >= (logicalMinutes - 5));
+        const upcomingListText = upcoming.length > 0
             ? upcoming.map(m => `• ${m.desc}`).join('\n')
-            : 'আজকের সব ম্যাচ শেষ। আগামীকাল দুপুর ৩:০০ PM থেকে আবার ম্যাচ শুরু হবে।';
+            : (hour24 < 3 
+                ? 'আজকের রাতের সব ম্যাচ শেষ ভাইয়া। পরবর্তী ম্যাচ আজ দুপুর ৩:০০ PM থেকে আবার শুরু হবে।'
+                : 'আজকের সব ম্যাচ শেষ। আগামীকাল দুপুর ৩:০০ PM থেকে আবার ম্যাচ শুরু হবে।');
 
         return {
             formatted: timeFormatter.format(now),
             hour24,
             minute,
             currentMinutes,
+            logicalMinutes,
             upcomingListText
         };
     } catch (_) {
@@ -830,20 +971,8 @@ async function notifyAdminSelf(alertText) {
 
 // AI Customer Support Assistant Helper
 async function generateAiSupportReply(userMessage, senderPhone, imageBase64 = null, mimeType = 'image/jpeg') {
-    let knowledge = {};
-    try {
-        const kPath = path.join(__dirname, 'ai_knowledge.json');
-        if (fs.existsSync(kPath)) {
-            knowledge = JSON.parse(fs.readFileSync(kPath, 'utf8'));
-        }
-    } catch (_) {}
-
-    let currentConfig = config;
-    try {
-        if (fs.existsSync(configPath)) {
-            currentConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        }
-    } catch (_) {}
+    const knowledge = getCachedKnowledge();
+    const currentConfig = getCachedConfig();
 
     const candidateKeys = getOrderedCandidateKeys();
     const primaryModel = process.env.GEMINI_MODEL || currentConfig.ai_model || config.ai_model || 'gemini-3.5-flash-lite';
@@ -1248,6 +1377,16 @@ async function startWhatsAppBot() {
             const isLoggedOut = (statusCode === DisconnectReason.loggedOut);
             console.log(`\n⚠️ Connection closed: ${lastDisconnect?.error?.message || 'Unknown'}. Logged out: ${isLoggedOut}`);
 
+            // Clear any active presence keep-alive and watchdog timers to prevent memory leak
+            if (global.presenceKeepAliveTimer) {
+                clearInterval(global.presenceKeepAliveTimer);
+                global.presenceKeepAliveTimer = null;
+            }
+            if (global.zombieWatchdogTimer) {
+                clearInterval(global.zombieWatchdogTimer);
+                global.zombieWatchdogTimer = null;
+            }
+
             // Ensure previous socket is closed cleanly to stop Bad MAC
             if (sock) {
                 try {
@@ -1258,20 +1397,9 @@ async function startWhatsAppBot() {
             }
 
             if (isLoggedOut) {
-                console.log(`🗑️ [LOGGED OUT] Session was logged out. Clearing ${getSessionName()} and restarting for fresh QR code...`);
-                sessionInvalidated = true;
-                if (currentAuthState && currentAuthState.clearAuth) {
-                    await currentAuthState.clearAuth();
-                }
-                const sessionDir = getSessionDir();
-                if (fs.existsSync(sessionDir)) {
-                    try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (_) {}
-                }
-                currentQr = null;
-                currentQrDataUrl = null;
-                currentPairingCode = null;
+                console.warn(`⚠️ [TEMPORARY 401 / DISCONNECT DETECTED] Preserving session credentials in database. Reconnecting cleanly without wiping data...`);
                 if (reconnectTimeout) clearTimeout(reconnectTimeout);
-                reconnectTimeout = setTimeout(startWhatsAppBot, 2000);
+                reconnectTimeout = setTimeout(startWhatsAppBot, 5000);
             } else {
                 if (reconnectTimeout) clearTimeout(reconnectTimeout);
                 reconnectTimeout = setTimeout(startWhatsAppBot, 3500);
@@ -1279,6 +1407,7 @@ async function startWhatsAppBot() {
         } else if (connection === 'open') {
             isConnected = true;
             botConnectTimestamp = Math.floor(Date.now() / 1000);
+            global.lastSocketActivityTimestamp = Date.now();
             if (reconnectTimeout) {
                 clearTimeout(reconnectTimeout);
                 reconnectTimeout = null;
@@ -1323,11 +1452,29 @@ async function startWhatsAppBot() {
 
             // Maintain presence every 3 minutes so WhatsApp never marks this companion device as idle
             if (global.presenceKeepAliveTimer) clearInterval(global.presenceKeepAliveTimer);
-            global.presenceKeepAliveTimer = setInterval(() => {
+            global.presenceKeepAliveTimer = setInterval(async () => {
                 if (sock && isConnected) {
-                    sock.sendPresenceUpdate('available').catch(() => {});
+                    try {
+                        await sock.sendPresenceUpdate('available');
+                        // Confirmed heartbeat: Even at midnight with 0 incoming messages, socket is proven 100% alive!
+                        global.lastSocketActivityTimestamp = Date.now();
+                    } catch (_) { }
                 }
             }, 3 * 60 * 1000);
+
+            // Anti-Zombie Watchdog: Only triggers if BOTH message traffic AND background presence heartbeats fail for >15m
+            if (global.zombieWatchdogTimer) clearInterval(global.zombieWatchdogTimer);
+            global.zombieWatchdogTimer = setInterval(() => {
+                if (sock && isConnected) {
+                    const silence = Date.now() - (global.lastSocketActivityTimestamp || Date.now());
+                    if (silence > 15 * 60 * 1000) {
+                        console.log('⚠️ [ZOMBIE SOCKET DETECTED] Socket presence heartbeat failed for >15m. Refreshing connection...');
+                        try {
+                            sock.end(new Error('Zombie socket detected - forcing reconnect'));
+                        } catch (_) { }
+                    }
+                }
+            }, 2 * 60 * 1000);
         }
     });
 
@@ -1379,6 +1526,13 @@ async function startWhatsAppBot() {
 
         if (!text && !imageBase64) return;
 
+        // Check if message requires Admin Alert (Payment Proof / Screenshot or Direct Admin Request)
+        const cleanCustomerPhone = senderPhone.replace(/\D/g, '');
+        const isLid = (senderJid || '').endsWith('@lid') || (cleanCustomerPhone.length >= 14 && !cleanCustomerPhone.startsWith('880'));
+        const customerDisplay = (msg.pushName || '').trim() || 'কাস্টমার';
+        const phoneDisplay = isLid ? 'গোপন রাখা (Hidden)' : `+${cleanCustomerPhone}`;
+        const chatLink = `https://wa.me/${cleanCustomerPhone}`;
+
         // Master Kill Switch Check: If Tanim (Owner) paused the bot, silently ignore customer messages
         if (isBotPaused) {
             console.log(`⏸️ [BOT PAUSED] Message from ${senderPhone} ignored because bot is switched OFF by Admin.`);
@@ -1393,13 +1547,6 @@ async function startWhatsAppBot() {
             });
             return;
         }
-
-        // Check if message requires Admin Alert (Payment Proof / Screenshot or Direct Admin Request)
-        const cleanCustomerPhone = senderPhone.replace(/\D/g, '');
-        const isLid = (senderJid || '').endsWith('@lid') || (cleanCustomerPhone.length >= 14 && !cleanCustomerPhone.startsWith('880'));
-        const customerDisplay = (msg.pushName || '').trim() || 'কাস্টমার';
-        const phoneDisplay = isLid ? 'গোপন রাখা (Hidden)' : `+${cleanCustomerPhone}`;
-        const chatLink = `https://wa.me/${cleanCustomerPhone}`;
 
         const paymentActionGuide = isLid
             ? `👉 *কাস্টমার নম্বর গোপন রেখেছে। চ্যাটটি পেতে WhatsApp সার্চবারে লিখুন:*\n🔍 *"${customerDisplay}"*`
@@ -1420,7 +1567,7 @@ async function startWhatsAppBot() {
                 `📸 *স্ক্রিনশট আছে:* ${imageBase64 ? 'হ্যাঁ (Yes)' : 'না'}\n` +
                 `━━━━━━━━━━━━━━━━━━━\n` +
                 paymentActionGuide;
-            notifyAdminSelf(alertMsg).catch(() => {});
+            notifyAdminSelf(alertMsg).catch(() => { });
         }
 
         // 2. Direct Admin Contact / Payment Request Alert to Tanim's 'Message yourself'
@@ -1433,14 +1580,14 @@ async function startWhatsAppBot() {
                 `💬 *মেসেজ:* "${text}"\n` +
                 `━━━━━━━━━━━━━━━━━━━\n` +
                 adminActionGuide;
-            notifyAdminSelf(adminAlertMsg).catch(() => {});
+            notifyAdminSelf(adminAlertMsg).catch(() => { });
         }
 
         // All incoming WhatsApp messages go directly to AI Support Agent
         console.log(`💬 [MESSAGE RECEIVED] From: ${senderPhone} | Text: "${text}" | HasImage: ${!!imageBase64}`);
         try {
             // Instantly notify user with typing presence so they know bot is online & responding
-            sock.sendPresenceUpdate('composing', senderJid).catch(() => {});
+            sock.sendPresenceUpdate('composing', senderJid).catch(() => { });
             const aiReply = await generateAiSupportReply(text, senderPhone, imageBase64, imageMime);
             await sock.sendMessage(senderJid, { text: aiReply });
             console.log(`🤖 [AI SUPPORT REPLIED] To: ${senderPhone}`);
@@ -1471,7 +1618,7 @@ async function startWhatsAppBot() {
                 time: new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Dhaka', hour: 'numeric', minute: '2-digit', hour12: true })
             });
         } finally {
-            sock.sendPresenceUpdate('paused', senderJid).catch(() => {});
+            sock.sendPresenceUpdate('paused', senderJid).catch(() => { });
         }
     }
 
@@ -1581,6 +1728,7 @@ async function startWhatsAppBot() {
 
     // Listen to incoming messages (handles multiple users simultaneously and queues bursts per user)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        global.lastSocketActivityTimestamp = Date.now();
         if (!messages || messages.length === 0) return;
 
         for (const msg of messages) {
@@ -1601,12 +1749,8 @@ async function startWhatsAppBot() {
                 continue;
             }
 
-            // Normal WhatsApp receipts, status stubs, and reactions do not carry a text message payload
+            // Normal WhatsApp receipts, delivery acks, reactions, and stubs do not carry a message body - skip safely without deleting keys
             if (!msg.message) {
-                if (senderPhone && !isFromMe && senderPhone.length > 5) {
-                    console.log(`⚠️ [EMPTY OR UNDECRYPTED PAYLOAD] Message from ${senderPhone} arrived without payload. Auto-healing pairwise session.`);
-                    purgeSenderCorruptedSession(senderJid);
-                }
                 continue;
             }
 
@@ -1734,7 +1878,7 @@ const server = http.createServer(async (req, res) => {
             sessionInvalidated = true;
             console.log('🔄 [LOGOUT REQUESTED] Clearing WhatsApp session for new number link...');
             if (sock) {
-                try { await sock.logout(); } catch (_) { try { sock.end(); } catch (__) {} }
+                try { await sock.logout(); } catch (_) { try { sock.end(); } catch (__) { } }
             }
             isConnected = false;
             currentQr = null;
@@ -1822,7 +1966,7 @@ const server = http.createServer(async (req, res) => {
                     if (typeof data.paused === 'boolean') {
                         targetState = data.paused;
                     }
-                } catch (_) {}
+                } catch (_) { }
                 if (targetState === undefined) {
                     targetState = !isBotPaused;
                 }
@@ -2524,8 +2668,10 @@ server.listen(PORT, '0.0.0.0', () => {
         setInterval(() => {
             try {
                 const client = pingTarget.startsWith('https') ? https : http;
-                client.get(pingTarget, () => {}).on('error', () => {});
-            } catch (_) {}
+                client.get(pingTarget, (res) => {
+                    res.resume(); // Safely consumes response so TCP socket is immediately released
+                }).on('error', () => { });
+            } catch (_) { }
         }, 4 * 60 * 1000); // Ping every 4 minutes (Render sleeps at 15 mins, 4 mins guarantee 24/7 online)
         console.log(`⏱️ [RENDER 24/7 KEEP-ALIVE] Auto-pinging ${pingTarget} every 4 mins.`);
     }
@@ -2544,13 +2690,13 @@ async function handleGracefulShutdown(signal) {
                 if (sock.ws && sock.ws.readyState === 1) {
                     sock.ws.close();
                 }
-            } catch (_) {}
+            } catch (_) { }
         }
         if (mongoClient) {
             try {
                 await mongoClient.close();
                 console.log('📦 [MONGODB CLOSED] Closed MongoDB client connection cleanly.');
-            } catch (_) {}
+            } catch (_) { }
         }
     } finally {
         process.exit(0);
